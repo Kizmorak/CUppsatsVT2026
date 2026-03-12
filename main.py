@@ -18,9 +18,13 @@ def main():
     ratesSymbol = "USDSEK"
     ratesTimeFrame = mt5.TIMEFRAME_M1
     #utcTimeFrom = datetime(2026, 2, 26, tzinfo=pytz.timezone("Etc/UTC"))
-    dateStart = datetime.today() - timedelta(days=(10*365))
+    #dateStart = datetime.today() - timedelta(days=(4))
     #print(dateStart)
-    dateEnd = datetime.now()
+
+    #TO get 5 days ago with 1 day of verification
+    dateEnd = datetime(2026, 2, 27)- timedelta(days=(1))
+    dateStart = dateEnd - timedelta(days=(5))
+
     #print(dateEnd)
     periodCount = 1440
 
@@ -38,26 +42,45 @@ def main():
     ratesData = pd.DataFrame(mt5.copy_rates_range(ratesSymbol,ratesTimeFrame,dateStart,dateEnd))
 
     mt5.shutdown()
-
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
     ratesData = MACalculator(ratesData, MAWindowSize, MAPrice)
     ratesData = BollingerBandsCalculator(ratesData, BBPeriod, BBStandardDeviations)
     ratesData = RelativeStrengthIndexCalculator(ratesData)
     ratesData = OnBalanceVolume(ratesData)
-    ratesData = ForwardReturns(ratesData)
+    ratesData = AverageTrueRangeCalculator(ratesData)
+    #ratesData = ForwardReturns(ratesData) #No longer used
 
 
 
     #Prepare data for plot
     ratesData.set_index('time', inplace=True)
+    #ratesDataTime = ratesData.between_time('08:30', '15:00')
+    #ratesDataUppMove = ratesData.loc[ratesData["target"] == 1]
+    #ratesDataDownMove = ratesData.loc[ratesData["target"] == 2]
+
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
 
+    #ratesData["upp90"] = 0.002
+    #ratesData["down90"] = 0.002
+
     print(ratesData.columns)
+    #print(ratesData["upp90"].tail())
+    #print(ratesData["down90"].tail())
     print(ratesData.head())
     print(ratesData.tail())
 
+    #print(ratesDataUppMove.tail())
+    #print(ratesDataDownMove.tail())
+
+    ratesData.tail(30).to_csv(
+    "swedish.csv",
+    index=False,
+    sep=";",          # Swedish column separator
+    decimal=","       # Swedish decimal
+)
+
     ratesDatalast30 = ratesData.tail(30)
-    makePlot(ratesDatalast30)
+    makePlotForReport(ratesDatalast30)
 
 
 
@@ -93,23 +116,38 @@ def OnBalanceVolume(data):
     data["OBV"] = (data["tick_volume"]*data["direction"]).cumsum()
     return data
 
+#No logner used
 def ForwardReturns(data, period=10):
     data["futureMax"] = data["close"].shift(-period).rolling(window=period, min_periods=1).max()
     data["futureMin"] = data["close"].shift(-period).rolling(window=period, min_periods=1).min()
     data["maxUpp"] = data["futureMax"] - data["close"]
     data["maxDown"] = data["close"] - data["futureMin"]
-    data["upp90"] = data["maxUpp"].quantile(0.90)
-    data["down90"] = data["maxDown"].quantile(0.90)
+    data["upp90"] = data["maxUpp"].quantile(0.50)
+    data["down90"] = data["maxDown"].quantile(0.50)
     data["significantUpp"] = np.sign(data["maxUpp"]-data["upp90"])
     data["significantDown"] = np.sign(data["maxDown"]-data["down90"])
     data["target"] = 0
     data.loc[data["significantUpp"] > 0, "target"] = 1
     data.loc[data["significantDown"] > 0, "target"] = 2
     return data
+#END no longer used
+
+def AverageTrueRangeCalculator (data, period=14):
+    data["prevClose"] = data["close"].shift(1)
+    data["tr1"] = data["high"] - data["low"]
+    data["tr2"] = (data["high"] - data["prevClose"]).abs()
+    data["tr3"] = (data["low"] - data["prevClose"]).abs()
+    data["trueRange"] = data[["tr1", "tr2", "tr3"]].max(axis=1)
+
+    data["averageTrueRange"] = data["trueRange"].rolling(window=period).mean()
+    return data
 
 def MakeTrainingDataset(data):
     trainingDataset = data[""]
     return trainingDataset
+
+def GetTimeSpan(data):
+    return data
 
 def makePlot(ratesData):
     TIplots = [
@@ -133,8 +171,8 @@ def makePlot(ratesData):
     ax = axlist[0]
 
     y_min, y_max = axlist[0].get_ylim()
-    start_pct = np.clip((y_min - 5) / 8, 0, 1)
-    stop_pct = np.clip((y_max - 5) / 8, 0, 1)
+    start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1)
+    stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1)
 
     res = 224
     grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
@@ -159,6 +197,38 @@ def makePlot(ratesData):
     fig.savefig(file_path)
 
     print(f"Grafen är sparad som: {file_path}")
+
+    plt.show()
+    return ""
+
+def makePlotForReport(ratesData):
+    print("HELLO")
+    TIplots = [
+        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
+        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
+        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5),
+        mpf.make_addplot(ratesData["RSI"], panel=2, color="purple", width=0.5)
+    ]
+
+    #customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
+    fig, axlist = mpf.plot(ratesData,
+                           type='candle',
+                           style='charles',
+                           addplot=TIplots,
+                           figsize=(12, 8),
+                           returnfig=True)
+
+    # Manually set y-axis labels for each panel
+    axlist[0].set_ylabel("Price + MA + BB")
+    axlist[2].set_ylabel("RSI                  OBV", labelpad=10)  # main panel
+    axlist[2].yaxis.set_label_coords(1.06, -0.05)
+
+    file_path_pdf = "trading_plot.pdf"
+    fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
+
+    print(f"Grafen är sparad som: {file_path_pdf}")
 
     plt.show()
     return ""
