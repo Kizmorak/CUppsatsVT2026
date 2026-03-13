@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import mplfinance as mpf
 import pandas as pd
+import os
 import pytz
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.pyplot import tight_layout
@@ -43,17 +44,22 @@ def main():
 
     mt5.shutdown()
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
+    ratesData = ratesData.set_index("time")
+    ratesData = ratesData.between_time('08:30', '15:00')
     ratesData = MACalculator(ratesData, MAWindowSize, MAPrice)
     ratesData = BollingerBandsCalculator(ratesData, BBPeriod, BBStandardDeviations)
     ratesData = RelativeStrengthIndexCalculator(ratesData)
     ratesData = OnBalanceVolume(ratesData)
     ratesData = AverageTrueRangeCalculator(ratesData)
-    #ratesData = ForwardReturns(ratesData) #No longer used
+    ratesData = ForwardReturns(ratesData)
 
-
+    #Remove confilicts and print results for target summary
+    ratesData = ratesData[ratesData["conflict"] == 0]
+    print(ratesData["target"].value_counts())
+    print(f"Total conflict points found: {ratesData['conflict'].sum()}")
 
     #Prepare data for plot
-    ratesData.set_index('time', inplace=True)
+    #ratesData.set_index('time', inplace=True)
     #ratesDataTime = ratesData.between_time('08:30', '15:00')
     #ratesDataUppMove = ratesData.loc[ratesData["target"] == 1]
     #ratesDataDownMove = ratesData.loc[ratesData["target"] == 2]
@@ -79,9 +85,32 @@ def main():
     decimal=","       # Swedish decimal
 )
 
-    ratesDatalast30 = ratesData.tail(30)
-    makePlotForReport(ratesDatalast30)
 
+    #makePlotForReport(ratesDatalast30)
+
+    #ratesDatalast30 = ratesData.tail(30)
+    #makePlotV2(ratesDatalast30, "testFolder")
+
+################################################
+
+    window_size = 30
+    total_rows = len(ratesData)
+
+    # We start the loop at 'window_size' so the first slice [0:30] is valid
+    for i in range(window_size, total_rows + 1):
+        # Slice from (current position - window) to (current position)
+        subset = ratesData.iloc[i - window_size: i]
+
+        # Send to your plotting function
+
+        current_target = subset["target"].iloc[-1]
+
+        if current_target == 1:
+            makePlotV2(subset, "uppMovment")
+        elif current_target == 2:
+            makePlotV2(subset, "downMovment")
+        else:
+            makePlotV2(subset, "noMovment")
 
 
 def MACalculator(data, windowSize, MAPrice, name=None):
@@ -116,21 +145,28 @@ def OnBalanceVolume(data):
     data["OBV"] = (data["tick_volume"]*data["direction"]).cumsum()
     return data
 
-#No logner used
-def ForwardReturns(data, period=10):
+def ForwardReturns(data, period=10, atrFactor=5):
     data["futureMax"] = data["close"].shift(-period).rolling(window=period, min_periods=1).max()
     data["futureMin"] = data["close"].shift(-period).rolling(window=period, min_periods=1).min()
     data["maxUpp"] = data["futureMax"] - data["close"]
     data["maxDown"] = data["close"] - data["futureMin"]
-    data["upp90"] = data["maxUpp"].quantile(0.50)
-    data["down90"] = data["maxDown"].quantile(0.50)
-    data["significantUpp"] = np.sign(data["maxUpp"]-data["upp90"])
-    data["significantDown"] = np.sign(data["maxDown"]-data["down90"])
+    #data["upp90"] = data["maxUpp"].quantile(0.90)
+    #data["down90"] = data["maxDown"].quantile(0.90)
+    #data["significantUpp"] = np.sign(data["maxUpp"]-data["upp90"])
+    #data["significantDown"] = np.sign(data["maxDown"]-data["down90"])
+    data["significantUpp"] = np.sign(data["maxUpp"] - (data["averageTrueRange"]*atrFactor))
+    data["significantDown"] = np.sign(data["maxDown"] - (data["averageTrueRange"]*atrFactor))
     data["target"] = 0
-    data.loc[data["significantUpp"] > 0, "target"] = 1
-    data.loc[data["significantDown"] > 0, "target"] = 2
+    maskUpp = data["significantUpp"] > 0
+    maskDown = data["significantDown"] > 0
+    mask_conflict = (data["significantUpp"] > 0) & (data["significantDown"] > 0)
+    data.loc[maskUpp, "target"] = 1
+    data.loc[maskDown, "target"] = 2
+    data["conflict"] = 0
+    data.loc[mask_conflict, "conflict"] = 1
+    print(f"Total conflict points found: {data['conflict'].sum()}")
+
     return data
-#END no longer used
 
 def AverageTrueRangeCalculator (data, period=14):
     data["prevClose"] = data["close"].shift(1)
@@ -140,6 +176,10 @@ def AverageTrueRangeCalculator (data, period=14):
     data["trueRange"] = data[["tr1", "tr2", "tr3"]].max(axis=1)
 
     data["averageTrueRange"] = data["trueRange"].rolling(window=period).mean()
+    return data
+
+def SignificantPointCalculatior(data, atrFactor=5):
+
     return data
 
 def MakeTrainingDataset(data):
@@ -229,6 +269,61 @@ def makePlotForReport(ratesData):
     fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
 
     print(f"Grafen är sparad som: {file_path_pdf}")
+
+    plt.show()
+    return ""
+
+def makePlotV2(ratesData, saveFolderName):
+    TIplots = [
+        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
+        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
+        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["RSI"], color="purple", width=0.5, secondary_y=True),
+        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5,)
+    ]
+
+    customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
+    fig, axlist = mpf.plot(ratesData,
+                           type='candle',
+                           style=customPlotStyle,
+                           addplot=TIplots,
+                           figsize=(2.24, 2.24),
+                           axisoff=True,
+                           scale_padding={'left': 0.1, 'top': 0.1, 'right': 0.1, 'bottom': 0.1},
+                           returnfig=True)
+    ax = axlist[0]
+
+    y_min, y_max = axlist[0].get_ylim()
+    start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1)
+    stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1)
+
+    res = 224
+    grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
+
+    grad_2d = np.tile(grad_array, (1, res))
+
+    cmap = LinearSegmentedColormap.from_list('bp', ['blue', 'yellow'])
+    rgb_image = cmap(grad_2d)
+
+    fig.figimage(rgb_image, resize=True, origin='lower', zorder=-10)
+
+    current_dpi = fig.get_dpi()
+    width_inch, height_inch = fig.get_size_inches()
+
+    print(f"DPI: {current_dpi}")
+    print(f"Storlek i tum: {width_inch} x {height_inch}")
+    print(f"Faktisk storlek i pixlar: {width_inch * current_dpi} x {height_inch * current_dpi}")
+
+    if saveFolderName and not os.path.exists(saveFolderName):
+        os.makedirs(saveFolderName)
+    #Spara på specificerad mapp
+    file_path = os.path.join(saveFolderName, f"{ratesData.index[0].strftime('%Y-%m-%d_%H%M')}.png")
+
+    # Spara figuren
+    fig.savefig(file_path)
+
+    print(f"Grafen är sparad som: {file_path}")
 
     plt.show()
     return ""
