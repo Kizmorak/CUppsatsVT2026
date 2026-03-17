@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.datasets import ImageFolder
 from sklearn.metrics import confusion_matrix
 import numpy as np
+import torch.nn.functional as F
 
 
 # -------------------------
@@ -15,7 +16,12 @@ import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
-
+#optimize based on hardware
+batch_size = 8 if device.type == "cpu" else 16
+num_workers = 0 if device.type == "cpu" else 4
+if torch.cuda.is_available():
+    torch.backends.cudnn.benchmark = True
+epochs = 5
 
 # -------------------------
 # Transforms
@@ -50,8 +56,8 @@ sample_weights = [class_weights[label] for _,label in train_dataset]
 sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
 
 
-train_loader = DataLoader(train_dataset, batch_size=8, sampler=sampler, num_workers=0)
-val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=0)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
 # -------------------------
@@ -89,11 +95,20 @@ optimizer = torch.optim.AdamW([
 
 criterion = nn.CrossEntropyLoss()
 
+# -------------------------
+# Scheduler
+# -------------------------
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=epochs,
+    eta_min=1e-6
+)
+
 
 # -------------------------
 # Training
 # -------------------------
-num_epochs = 10
+num_epochs = epochs
 for epoch in range(num_epochs):
     model.train()
     running_loss = 0.0
@@ -136,13 +151,17 @@ for epoch in range(num_epochs):
 
     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
 
+    scheduler.step()
+
+
 
 # -------------------------
-# Confusion matrix
+# Confusion matrix + Prediction records
 # -------------------------
 
 all_preds = []
 all_labels = []
+all_confidences = []
 model.eval()
 with torch.no_grad():
     for images, labels in val_loader:
@@ -151,13 +170,32 @@ with torch.no_grad():
         outputs = model(images)
 
         preds = outputs.argmax(1)
+        confidences = F.softmax(outputs, dim=1).max(1)[0]
 
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
+        all_confidences.extend(confidences.cpu().numpy())
+
 cm = confusion_matrix(all_labels, all_preds)
 
 print("Confusion Matrix:")
 print(cm)
+
+# Save predictions with confidence to file
+class_names = train_dataset.classes
+with open("predictions.txt", "w", encoding="utf-8") as f:
+    f.write("Sample | Predicted | Confidence | Actual | Correct\n")
+    f.write("-" * 60 + "\n")
+    for i, (pred, conf, label) in enumerate(zip(all_preds, all_confidences, all_labels)):
+        is_correct = "✓" if pred == label else "✗"
+        f.write(f"{i:4d}   | {class_names[pred]:15s} | {conf:.4f}     | {class_names[label]:15s} | {is_correct}\n")
+
+print(f"\nPrediction records saved to predictions.txt")
+print(f"\nPrediction Summary:")
+print(f"Total samples: {len(all_preds)}")
+print(f"Correct predictions: {sum(np.array(all_preds) == np.array(all_labels))}")
+print(f"Accuracy: {sum(np.array(all_preds) == np.array(all_labels)) / len(all_preds):.4f}")
+print(f"Average confidence: {np.mean(all_confidences):.4f}")
 
 # -------------------------
 # Save model
