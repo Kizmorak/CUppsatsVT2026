@@ -10,6 +10,30 @@ import torch.nn.functional as F
 
 
 # -------------------------
+# Variabler och inställningar
+# -------------------------
+# Model and training parameters
+model = "convnextv2_atto"
+num_classes = 3
+dataset_path = "dataset"  # Path to your dataset folder containing 'train' and 'val' subfolders
+
+# Hyperparameters
+workers_cpu = 0
+workers_gpu = 4
+batch_size_cpu = 8
+batch_size_gpu = 16
+
+# Training parameters
+epochs = 5
+lr = 1e-4
+weight_decay = 0.05
+#number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
+
+# Augmentation options
+use_random_affine = True
+
+
+# -------------------------
 # Device
 # -------------------------
 # Set the device to GPU if available, otherwise use CPU
@@ -17,11 +41,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", device)
 
 #optimize based on hardware
-batch_size = 8 if device.type == "cpu" else 16
-num_workers = 0 if device.type == "cpu" else 4
+batch_size = batch_size_cpu if device.type == "cpu" else batch_size_gpu
+num_workers = workers_cpu if device.type == "cpu" else workers_gpu
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
-epochs = 5
 
 # -------------------------
 # Transforms
@@ -31,30 +54,35 @@ mean = [0.485, 0.456, 0.406]
 std  = [0.229, 0.224, 0.225]
 
 # Limited data augmentation for fine-tuning
-transform = transforms.Compose([
-    transforms.RandomAffine(
-        degrees=0,
-        translate=(0.03, 0.03),
-        scale=(0.97, 1.03)
-    ),
-    transforms.ToTensor(),
-    transforms.Normalize(mean, std)
-])
+if use_random_affine:
+    transform = transforms.Compose([
+        transforms.RandomAffine(
+            degrees=0,
+            translate=(0.03, 0.03),
+            scale=(0.97, 1.03)
+        ),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+else:
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
 
 
 # -------------------------
 # Dataset
 # -------------------------
-train_dataset = ImageFolder(root="dataset/train", transform=transform)
-val_dataset = ImageFolder(root="dataset/val", transform=transform)
+train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=transform)
+val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=transform)
 
 # Handle class imbalance
-class_counts = [70,900,100] # Replace with actual counts of each class
+class_counts = np.bincount(train_dataset.targets, minlength=num_classes).tolist()
 class_weights = 1. / torch.tensor(class_counts, dtype=torch.float)
 
-sample_weights = [class_weights[label] for _,label in train_dataset]
+sample_weights = [class_weights[label] for label in train_dataset.targets]
 sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
-
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -64,10 +92,10 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_w
 # Model
 # -------------------------
 model = timm.create_model(
-    "convnextv2_atto",
+    model,
     pretrained=True
 )
-model.reset_classifier(num_classes=3)
+model.reset_classifier(num_classes=num_classes)
 model.to(device)
 
 # Freeze all layers except the head
@@ -89,9 +117,9 @@ for name, p in model.named_parameters():
 # -------------------------
 # Define the optimizer (AdamW is commonly used for training vision models)
 optimizer = torch.optim.AdamW([
-    {"params": model.head.parameters(), "lr": 1e-4},
-    {"params": model.stages[3].parameters(), "lr": 1e-5},
-], weight_decay=0.05)
+    {"params": model.head.parameters(), "lr": lr},
+    {"params": model.stages[3].parameters(), "lr": lr * 0.1},
+], weight_decay=weight_decay)
 
 criterion = nn.CrossEntropyLoss()
 
