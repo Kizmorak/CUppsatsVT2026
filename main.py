@@ -5,44 +5,70 @@ import numpy as np
 import mplfinance as mpf
 import pandas as pd
 import os
-import pytz
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.pyplot import tight_layout
-
-
-# This is a sample Python script.
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 
 def main():
+    print("This is the main function")
+
+    #VARIABLES OK TO CHANGE/TEST########################################################################################
     ratesSymbol = "USDSEK"
     ratesTimeFrame = mt5.TIMEFRAME_M1
-    #utcTimeFrom = datetime(2026, 2, 26, tzinfo=pytz.timezone("Etc/UTC"))
-    #dateStart = datetime.today() - timedelta(days=(4))
-    #print(dateStart)
+    dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+    dateStart = dateEnd - timedelta(days=(360))
+    trainingDaysRequested = -(20) #Only change value in parentheses
+    validationDaysRequested = -(5) #Only change value in parentheses
+    trainingFolderName = "train"
+    validationFolderName = "val"
 
-    #TO get 5 days ago with 1 day of verification
-    dateEnd = datetime(2026, 2, 27)- timedelta(days=(1))
-    dateStart = dateEnd - timedelta(days=(5))
+    numberOfClasses = 3 #Set to number of classes requested to be generated
 
-    #print(dateEnd)
-    periodCount = 1440
+    generateDataset = 0 #Set to 1 if you want a dataset generated
 
+
+    ####################################################################################################################
+
+
+    #VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
     MAWindowSize = 30
     MAPrice = "close"
 
     BBPeriod = 20
     BBStandardDeviations = 2
 
-    print("This is the main function")
-    if not mt5.initialize():
-        print("initialize() failed, error code =", mt5.last_error())
-        quit()
+    # atrFactor = 5
+    # atrPeriod = 14
 
-    ratesData = pd.DataFrame(mt5.copy_rates_range(ratesSymbol,ratesTimeFrame,dateStart,dateEnd))
+    # RSIPeriod = 14
 
-    mt5.shutdown()
+    # significantMovementPeriod = 10
+
+    #timeOfDayStart = "08:30"
+    #timeOfDayEnd = "15:00"
+
+    windowSize = 30 #in function: GenerateDataSet
+    getNoMovementEvery = 1 #in function: GenerateDataSet3class
+    ####################################################################################################################
+
+
+    #CHART VARIABLES: 0 is not included. 1 is included##################################################################
+    #includeMA30 = 0
+    #includeBBUpper = 1
+    #includeBBMiddle = 1
+    #includeBBLower = 1
+    #includeOBV = 1
+    #includeRSI = 1
+    ####################################################################################################################
+    print("Main variables set")
+
+    print("Getting data from MT5")
+    ratesData = GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd)
+
+    print("MT5 data collected")
+
+
+    fiveDaysEnable = 0
+
+    #TECHNICAL INDICATORS CALCULATIONS##################################################################################
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
     ratesData = ratesData.set_index("time")
     ratesData = ratesData.between_time('08:30', '15:00')
@@ -52,66 +78,33 @@ def main():
     ratesData = OnBalanceVolume(ratesData)
     ratesData = AverageTrueRangeCalculator(ratesData)
     ratesData = ForwardReturns(ratesData)
-
-    #Remove confilicts and print results for target summary
-    ratesData = ratesData[ratesData["conflict"] == 0]
-    print(ratesData["target"].value_counts())
-    print(f"Total conflict points found: {ratesData['conflict'].sum()}")
-
-    #Prepare data for plot
-    #ratesData.set_index('time', inplace=True)
-    #ratesDataTime = ratesData.between_time('08:30', '15:00')
-    #ratesDataUppMove = ratesData.loc[ratesData["target"] == 1]
-    #ratesDataDownMove = ratesData.loc[ratesData["target"] == 2]
-
+    uniqueDays = sorted(list(set(ratesData.index.date)))  # All days contained within the dataset
+    #Prepares data for chart
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+    ####################################################################################################################
 
-    #ratesData["upp90"] = 0.002
-    #ratesData["down90"] = 0.002
+    #Generate validation dataset
+    requestedValidationDays = uniqueDays[validationDaysRequested:]
+    validationRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedValidationDays)]
 
-    print(ratesData.columns)
-    #print(ratesData["upp90"].tail())
-    #print(ratesData["down90"].tail())
-    print(ratesData.head())
-    print(ratesData.tail())
+    # Generate training dataset
+    requestedTrainingDays = uniqueDays[((trainingDaysRequested+validationDaysRequested)):validationDaysRequested]
+    trainingRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedTrainingDays)]
 
-    #print(ratesDataUppMove.tail())
-    #print(ratesDataDownMove.tail())
-
-    ratesData.tail(30).to_csv(
-    "swedish.csv",
-    index=False,
-    sep=";",          # Swedish column separator
-    decimal=","       # Swedish decimal
-)
+    if generateDataset == 1:
+        GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClasses)
+        GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClasses)
 
 
-    #makePlotForReport(ratesDatalast30)
+def GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd):
+    if not mt5.initialize():
+        print("initialize() failed, error code =", mt5.last_error())
+        quit()
 
-    #ratesDatalast30 = ratesData.tail(30)
-    #makePlotV2(ratesDatalast30, "testFolder")
+    ratesData = pd.DataFrame(mt5.copy_rates_range(ratesSymbol,ratesTimeFrame,dateStart,dateEnd))
 
-################################################
-
-    window_size = 30
-    total_rows = len(ratesData)
-
-    # We start the loop at 'window_size' so the first slice [0:30] is valid
-    for i in range(window_size, total_rows + 1):
-        # Slice from (current position - window) to (current position)
-        subset = ratesData.iloc[i - window_size: i]
-
-        # Send to your plotting function
-
-        current_target = subset["target"].iloc[-1]
-
-        if current_target == 1:
-            makePlotV2(subset, "uppMovment")
-        elif current_target == 2:
-            makePlotV2(subset, "downMovment")
-        else:
-            makePlotV2(subset, "noMovment")
-
+    mt5.shutdown()
+    return(ratesData)
 
 def MACalculator(data, windowSize, MAPrice, name=None):
     if name is None:
@@ -134,10 +127,6 @@ def RelativeStrengthIndexCalculator(data, period=14):
     data["downMean"] = data["down"].rolling(window=period).mean()
     data["RS"] = data["upMean"] / data["downMean"]
     data["RSI"] = 100 - 100 / (1 + data["RS"])
-
-    print(data.tail())
-    #print(up.tail())
-    #print(down.tail())
     return data
 
 def OnBalanceVolume(data):
@@ -150,10 +139,6 @@ def ForwardReturns(data, period=10, atrFactor=5):
     data["futureMin"] = data["close"].shift(-period).rolling(window=period, min_periods=1).min()
     data["maxUpp"] = data["futureMax"] - data["close"]
     data["maxDown"] = data["close"] - data["futureMin"]
-    #data["upp90"] = data["maxUpp"].quantile(0.90)
-    #data["down90"] = data["maxDown"].quantile(0.90)
-    #data["significantUpp"] = np.sign(data["maxUpp"]-data["upp90"])
-    #data["significantDown"] = np.sign(data["maxDown"]-data["down90"])
     data["significantUpp"] = np.sign(data["maxUpp"] - (data["averageTrueRange"]*atrFactor))
     data["significantDown"] = np.sign(data["maxDown"] - (data["averageTrueRange"]*atrFactor))
     data["target"] = 0
@@ -178,18 +163,153 @@ def AverageTrueRangeCalculator (data, period=14):
     data["averageTrueRange"] = data["trueRange"].rolling(window=period).mean()
     return data
 
-def SignificantPointCalculatior(data, atrFactor=5):
 
-    return data
 
-def MakeTrainingDataset(data):
-    trainingDataset = data[""]
-    return trainingDataset
+def makePlotForReport(chartData):
+    print("HELLO")
+    TIplots = [
+        mpf.make_addplot(chartData["ma30"], color="black", width=0.3),
+        mpf.make_addplot(chartData["BBUpper"], color="cyan", width=0.3),
+        mpf.make_addplot(chartData["BBMiddle"], color="orange", width=0.3),
+        mpf.make_addplot(chartData["BBLower"], color="cyan", width=0.3),
+        mpf.make_addplot(chartData["OBV"], panel=1, color="purple", width=0.5),
+        mpf.make_addplot(chartData["RSI"], panel=2, color="purple", width=0.5)
+    ]
 
-def GetTimeSpan(data):
-    return data
+    #customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
+    fig, axlist = mpf.plot(chartData,
+                           type='candle',
+                           style='charles',
+                           addplot=TIplots,
+                           figsize=(12, 8),
+                           returnfig=True)
 
-def makePlot(ratesData):
+    # Manually set y-axis labels for each panel
+    axlist[0].set_ylabel("Price + MA + BB")
+    axlist[2].set_ylabel("RSI                  OBV", labelpad=10)  # main panel
+    axlist[2].yaxis.set_label_coords(1.06, -0.05)
+
+    file_path_pdf = "trading_plot.pdf"
+    fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
+
+    print(f"Grafen är sparad som: {file_path_pdf}")
+
+    plt.show()
+    return ""
+
+def makePlot(ratesData, saveFolderName):
+    # 1. Day-Change Guard
+    if ratesData.index[0].date() != ratesData.index[-1].date():
+        print("Skipping: Day change detected.")
+        return False
+
+    # 2. Connection/Gap Guard
+    # Calculate the difference between consecutive timestamps
+    time_deltas = ratesData.index.to_series().diff().dropna()
+
+    # Check if any gap is NOT equal to 1 minute
+    if not (time_deltas == pd.Timedelta(minutes=1)).all():
+        print("Skipping: Gap in minute data detected.")
+        return False
+    TIplots = [
+        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
+        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
+        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
+        mpf.make_addplot(ratesData["RSI"], color="purple", width=0.5, secondary_y=True),
+        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5,)
+    ]
+
+    customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
+    fig, axlist = mpf.plot(ratesData,
+                           type='candle',
+                           style=customPlotStyle,
+                           addplot=TIplots,
+                           figsize=(2.24, 2.24),
+                           axisoff=True,
+                           scale_padding={'left': 0.1, 'top': 0.1, 'right': 0.1, 'bottom': 0.1},
+                           returnfig=True)
+    ax = axlist[0]
+
+    y_min, y_max = axlist[0].get_ylim()
+    start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1) - 0.01
+    stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1) + 0.01
+
+    res = 224
+    grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
+
+    grad_2d = np.tile(grad_array, (1, res))
+
+    cmap = LinearSegmentedColormap.from_list('bp', ['blue', 'yellow', 'red', 'cyan', 'magenta', 'green'])
+    rgb_image = cmap(grad_2d)
+
+    #fig.figimage(rgb_image, resize=True, origin='lower', zorder=-10)
+
+    current_dpi = fig.get_dpi()
+    width_inch, height_inch = fig.get_size_inches()
+
+    print(f"DPI: {current_dpi}")
+    print(f"Storlek i tum: {width_inch} x {height_inch}")
+    print(f"Faktisk storlek i pixlar: {width_inch * current_dpi} x {height_inch * current_dpi}")
+
+    if saveFolderName and not os.path.exists(saveFolderName):
+        os.makedirs(saveFolderName)
+    #Spara på specificerad mapp
+    file_path = os.path.join(saveFolderName, f"{ratesData.index[0].strftime('%Y-%m-%d_%H%M')}.png")
+
+    # Spara figuren
+    fig.savefig(file_path)
+
+    print(f"Grafen är sparad som: {file_path}")
+
+    plt.show()
+    plt.close()
+    return ""
+
+def GenerateDataSet(ratesData, saveFolderName, window_size = 30, getNoMovementEvery = 1, numberOfClasses = 3):
+    saveFolderName=os.path.join("dataset", saveFolderName)
+    total_rows = len(ratesData)
+    noMovementCounter = 0
+    if numberOfClasses == 2:
+        folders = ["upMovement", "downMovement"]
+    elif numberOfClasses == 3:
+        folders = ["upMovement", "downMovement", "noMovement"]
+    else:
+        print("Wrong number of classes.")
+        return ""
+
+    # Pre-create all paths
+    for folder in folders:
+        os.makedirs(os.path.join(saveFolderName, folder), exist_ok=True)
+
+
+
+    #We start the loop at 'window_size' so the first slice [0:30] is valid
+    for i in range(window_size, total_rows + 1):
+        # Slice from (current position - window) to (current position)
+        subset = ratesData.iloc[i - window_size: i]
+
+        #Check what movement is valid and send to plotting function
+        current_target = subset["target"].iloc[-1]
+        if (subset["conflict"] == 0).all(): #ratesData = ratesData[ratesData["conflict"] == 0]
+            if current_target == 1:
+                makePlot(subset, os.path.join(saveFolderName, "upMovement"))
+            elif current_target == 2:
+                makePlot(subset, os.path.join(saveFolderName, "downMovement"))
+            elif current_target == 0:  # Explicitly check for noMovement
+                # Only plot if the counter hits the interval
+                if noMovementCounter % getNoMovementEvery == 0:
+                    makePlot(subset, os.path.join(saveFolderName, "noMovement"))
+
+    return ""
+
+
+if __name__ == '__main__':
+    main()
+
+#CODE BELLOW HERE IS OUTDATED AND NOT USED##############################################################################
+
+def makePlot_OUTDATED(ratesData):
     TIplots = [
         mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
         mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
@@ -240,93 +360,3 @@ def makePlot(ratesData):
 
     plt.show()
     return ""
-
-def makePlotForReport(ratesData):
-    print("HELLO")
-    TIplots = [
-        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
-        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
-        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5),
-        mpf.make_addplot(ratesData["RSI"], panel=2, color="purple", width=0.5)
-    ]
-
-    #customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
-    fig, axlist = mpf.plot(ratesData,
-                           type='candle',
-                           style='charles',
-                           addplot=TIplots,
-                           figsize=(12, 8),
-                           returnfig=True)
-
-    # Manually set y-axis labels for each panel
-    axlist[0].set_ylabel("Price + MA + BB")
-    axlist[2].set_ylabel("RSI                  OBV", labelpad=10)  # main panel
-    axlist[2].yaxis.set_label_coords(1.06, -0.05)
-
-    file_path_pdf = "trading_plot.pdf"
-    fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
-
-    print(f"Grafen är sparad som: {file_path_pdf}")
-
-    plt.show()
-    return ""
-
-def makePlotV2(ratesData, saveFolderName):
-    TIplots = [
-        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
-        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
-        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["RSI"], color="purple", width=0.5, secondary_y=True),
-        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5,)
-    ]
-
-    customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
-    fig, axlist = mpf.plot(ratesData,
-                           type='candle',
-                           style=customPlotStyle,
-                           addplot=TIplots,
-                           figsize=(2.24, 2.24),
-                           axisoff=True,
-                           scale_padding={'left': 0.1, 'top': 0.1, 'right': 0.1, 'bottom': 0.1},
-                           returnfig=True)
-    ax = axlist[0]
-
-    y_min, y_max = axlist[0].get_ylim()
-    start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1)
-    stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1)
-
-    res = 224
-    grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
-
-    grad_2d = np.tile(grad_array, (1, res))
-
-    cmap = LinearSegmentedColormap.from_list('bp', ['blue', 'yellow'])
-    rgb_image = cmap(grad_2d)
-
-    fig.figimage(rgb_image, resize=True, origin='lower', zorder=-10)
-
-    current_dpi = fig.get_dpi()
-    width_inch, height_inch = fig.get_size_inches()
-
-    print(f"DPI: {current_dpi}")
-    print(f"Storlek i tum: {width_inch} x {height_inch}")
-    print(f"Faktisk storlek i pixlar: {width_inch * current_dpi} x {height_inch * current_dpi}")
-
-    if saveFolderName and not os.path.exists(saveFolderName):
-        os.makedirs(saveFolderName)
-    #Spara på specificerad mapp
-    file_path = os.path.join(saveFolderName, f"{ratesData.index[0].strftime('%Y-%m-%d_%H%M')}.png")
-
-    # Spara figuren
-    fig.savefig(file_path)
-
-    print(f"Grafen är sparad som: {file_path}")
-
-    plt.show()
-    return ""
-
-if __name__ == '__main__':
-    main()
