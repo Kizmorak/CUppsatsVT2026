@@ -5,57 +5,60 @@ import numpy as np
 import mplfinance as mpf
 import pandas as pd
 import os
+import shutil
 from matplotlib.colors import LinearSegmentedColormap
+
+#VARIABLES OK TO CHANGE/TEST########################################################################################
+ratesSymbol = "USDSEK"
+ratesTimeFrame = mt5.TIMEFRAME_M1
+dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+dateStart = dateEnd - timedelta(days=(360))
+trainingDaysRequested = -(1) #Only change value in parentheses
+validationDaysRequested = -(1) #Only change value in parentheses
+trainingFolderName = "train"
+validationFolderName = "val"
+
+
+numberOfClasses = 3 #Set to number of classes requested to be generated
+generateDataset = 1 #Set to 1 if you want a dataset generated
+####################################################################################################################
+
+
+#VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
+MAWindowSize = 30
+MAPrice = "close"
+
+BBPeriod = 20
+BBStandardDeviations = 2
+
+atrFactor = 5
+atrPeriod = 14
+
+RSIPeriod = 14
+
+significantMovementPeriod = 10
+
+timeOfDayStart = "08:30"
+timeOfDayEnd = "15:00"
+
+windowSize = 30 #in function: GenerateDataSet
+getNoMovementEvery = 10 #in function: GenerateDataSet
+####################################################################################################################
+
+
+#CHART VARIABLES: 0 is not included. 1 is included##################################################################
+includeTIs = 1
+
+includeMA30 = 0
+includeBB = 1
+includeOBV = 1
+includeRSI = 1
+####################################################################################################################
 
 def main():
     print("This is the main function")
 
-    #VARIABLES OK TO CHANGE/TEST########################################################################################
-    ratesSymbol = "USDSEK"
-    ratesTimeFrame = mt5.TIMEFRAME_M1
-    dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
-    dateStart = dateEnd - timedelta(days=(360))
-    trainingDaysRequested = -(5) #Only change value in parentheses
-    validationDaysRequested = -(1) #Only change value in parentheses
-    trainingFolderName = "train"
-    validationFolderName = "val"
 
-
-    numberOfClasses = 3 #Set to number of classes requested to be generated
-    generateDataset = 0 #Set to 1 if you want a dataset generated
-    ####################################################################################################################
-
-
-    #VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
-    MAWindowSize = 30
-    MAPrice = "close"
-
-    BBPeriod = 20
-    BBStandardDeviations = 2
-
-    atrFactor = 5
-    atrPeriod = 14
-
-    RSIPeriod = 14
-
-    significantMovementPeriod = 10
-
-    timeOfDayStart = "08:30"
-    timeOfDayEnd = "15:00"
-
-    windowSize = 30 #in function: GenerateDataSet
-    getNoMovementEvery = 1 #in function: GenerateDataSet
-    ####################################################################################################################
-
-
-    #CHART VARIABLES: 0 is not included. 1 is included##################################################################
-    #includeMA30 = 0
-    #includeBBUpper = 1
-    #includeBBMiddle = 1
-    #includeBBLower = 1
-    #includeOBV = 1
-    #includeRSI = 1
-    ####################################################################################################################
     print("Main variables set")
 
     print("Getting data from MT5")
@@ -86,18 +89,21 @@ def main():
     trainingRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedTrainingDays)]
 
     if generateDataset == 1:
+        if os.path.exists("datasetNew"):
+            shutil.rmtree("datasetNew")
+            print(f"Deleted existing folder: {"datasetNew"}")
         GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClasses)
         GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClasses)
 
 
 #Starts MT5 and gets rates data according to configuration of input to function
 #Returns an array of the rates
-def GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd):
+def GetDataFromMT5(symbol, timeFrame, start, end):
     if not mt5.initialize():
         print("initialize() failed, error code =", mt5.last_error())
         quit()
 
-    ratesData = pd.DataFrame(mt5.copy_rates_range(ratesSymbol,ratesTimeFrame,dateStart,dateEnd))
+    ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame,start,end))
 
     mt5.shutdown()
     return(ratesData)
@@ -107,10 +113,10 @@ def GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd):
 #Returns the array with moving average column attached for all points.
 #MA column name can be chosen if name is part of input to function.
 #MA standar name is based on number of points used to calculate MA.
-def MACalculator(data, windowSize, MAPrice, name=None):
+def MACalculator(data, period, MAPrice, name=None):
     if name is None:
-        name = "ma" + str(windowSize)
-    data[name] = data[MAPrice].rolling(window=windowSize).mean()
+        name = "ma" + str(period)
+    data[name] = data[MAPrice].rolling(window=period).mean()
     return data
 
 #Takes an array of rates
@@ -190,28 +196,39 @@ def AverageTrueRangeCalculator (data, period=14):
 
 
 def makePlot(ratesData, saveFolderName):
-    # 1. Day-Change Guard
+    #Day-Change Guard
     if ratesData.index[0].date() != ratesData.index[-1].date():
         print("Skipping: Day change detected.")
         return False
 
-    # 2. Connection/Gap Guard
-    # Calculate the difference between consecutive timestamps
+    #Connection/Gap Guard
+    #Calculate the difference between consecutive timestamps
     time_deltas = ratesData.index.to_series().diff().dropna()
 
     # Check if any gap is NOT equal to 1 minute
     if not (time_deltas == pd.Timedelta(minutes=1)).all():
         print("Skipping: Gap in minute data detected.")
         return False
-    TIplots = [
-        mpf.make_addplot(ratesData["ma30"], color="black", width=0.3),
-        mpf.make_addplot(ratesData["BBUpper"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["BBMiddle"], color="orange", width=0.3),
-        mpf.make_addplot(ratesData["BBLower"], color="cyan", width=0.3),
-        mpf.make_addplot(ratesData["RSI"], color="purple", width=0.5, secondary_y=True),
-        mpf.make_addplot(ratesData["OBV"], panel=1, color="purple", width=0.5,)
-    ]
 
+    #TI inclusion based on configuration
+    if includeTIs:
+        plotsConfig = []
+        if includeMA30 == 1:
+            plotsConfig.append({"col": "ma30", "color": "black", "width": 0.3})
+        if includeBB == 1:
+            plotsConfig.append({"col": "BBUpper", "color": "cyan", "width": 0.3})
+            plotsConfig.append({"col": "BBMiddle", "color": "orange", "width": 0.3})
+            plotsConfig.append({"col": "BBLower", "color": "cyan", "width": 0.3})
+        if includeRSI == 1:
+            plotsConfig.append({"col": "RSI", "color": "purple", "width": 0.5, "secondary_y": True})
+        if includeOBV == 1:
+            plotsConfig.append({"col": "OBV", "color": "blue", "width": 0.5, "panel": 1})
+        TIplots = [
+            mpf.make_addplot(ratesData[item["col"]], **{k: v for k, v in item.items() if k != "col"})
+            for item in plotsConfig
+        ]
+
+    #Generate base plot
     customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
     fig, axlist = mpf.plot(ratesData,
                            type='candle',
@@ -223,45 +240,45 @@ def makePlot(ratesData, saveFolderName):
                            returnfig=True)
     ax = axlist[0]
 
+    # Set plot resolution
+    res = 224
+
+    #Calculate gradient based on plot values
     y_min, y_max = axlist[0].get_ylim()
     start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1) - 0.01
     stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1) + 0.01
-
-    res = 224
     grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
-
     grad_2d = np.tile(grad_array, (1, res))
-
     cmap = LinearSegmentedColormap.from_list('bp', ['blue', 'yellow', 'red', 'cyan', 'magenta', 'green'])
     rgb_image = cmap(grad_2d)
 
+    #Add gradient to plot
     #fig.figimage(rgb_image, resize=True, origin='lower', zorder=-10)
 
-    current_dpi = fig.get_dpi()
-    width_inch, height_inch = fig.get_size_inches()
-
-    print(f"DPI: {current_dpi}")
-    print(f"Storlek i tum: {width_inch} x {height_inch}")
-    print(f"Faktisk storlek i pixlar: {width_inch * current_dpi} x {height_inch * current_dpi}")
-
+    #Create save folder if not available
     if saveFolderName and not os.path.exists(saveFolderName):
         os.makedirs(saveFolderName)
-    #Spara på specificerad mapp
+    #Specify folder to be saved in
     file_path = os.path.join(saveFolderName, f"{ratesData.index[0].strftime('%Y-%m-%d_%H%M')}.png")
 
-    # Spara figuren
+    #Save figure
     fig.savefig(file_path)
 
     print(f"Grafen är sparad som: {file_path}")
 
+    #Show graph
     plt.show()
+    #Close graph
     plt.close()
     return ""
 
-def GenerateDataSet(ratesData, saveFolderName, window_size = 30, getNoMovementEvery = 1, numberOfClasses = 3):
+def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery = 1, numberOfClasses = 3):
+    # Create variables used by function
     saveFolderName=os.path.join("datasetNew", saveFolderName)
     total_rows = len(ratesData)
     noMovementCounter = 0
+
+    #Check number of classes configured
     if numberOfClasses == 2:
         folders = ["upMovement", "downMovement"]
     elif numberOfClasses == 3:
@@ -270,28 +287,28 @@ def GenerateDataSet(ratesData, saveFolderName, window_size = 30, getNoMovementEv
         print("Wrong number of classes.")
         return ""
 
-    # Pre-create all paths
+    # Pre-create all paths if not available
     for folder in folders:
         os.makedirs(os.path.join(saveFolderName, folder), exist_ok=True)
 
 
 
-    #We start the loop at 'window_size' so the first slice [0:30] is valid
-    for i in range(window_size, total_rows + 1):
+    #We start the loop at "window" so the first slice is valid
+    for i in range(window, total_rows + 1):
         # Slice from (current position - window) to (current position)
-        subset = ratesData.iloc[i - window_size: i]
+        subset = ratesData.iloc[i - window: i]
 
         #Check what movement is valid and send to plotting function
         current_target = subset["target"].iloc[-1]
-        if (subset["conflict"] == 0).all(): #ratesData = ratesData[ratesData["conflict"] == 0]
+        if (subset["conflict"] == 0).all():
             if current_target == 1:
                 makePlot(subset, os.path.join(saveFolderName, "upMovement"))
             elif current_target == 2:
                 makePlot(subset, os.path.join(saveFolderName, "downMovement"))
-            elif current_target == 0:  # Explicitly check for noMovement
-                # Only plot if the counter hits the interval
+            elif current_target == 0:
                 if noMovementCounter % getNoMovementEvery == 0:
                     makePlot(subset, os.path.join(saveFolderName, "noMovement"))
+                noMovementCounter += 1
 
     return ""
 
