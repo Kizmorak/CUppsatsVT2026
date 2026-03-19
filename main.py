@@ -15,16 +15,14 @@ def main():
     ratesTimeFrame = mt5.TIMEFRAME_M1
     dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
     dateStart = dateEnd - timedelta(days=(360))
-    trainingDaysRequested = -(20) #Only change value in parentheses
-    validationDaysRequested = -(5) #Only change value in parentheses
+    trainingDaysRequested = -(5) #Only change value in parentheses
+    validationDaysRequested = -(1) #Only change value in parentheses
     trainingFolderName = "train"
     validationFolderName = "val"
 
+
     numberOfClasses = 3 #Set to number of classes requested to be generated
-
     generateDataset = 0 #Set to 1 if you want a dataset generated
-
-
     ####################################################################################################################
 
 
@@ -35,18 +33,18 @@ def main():
     BBPeriod = 20
     BBStandardDeviations = 2
 
-    # atrFactor = 5
-    # atrPeriod = 14
+    atrFactor = 5
+    atrPeriod = 14
 
-    # RSIPeriod = 14
+    RSIPeriod = 14
 
-    # significantMovementPeriod = 10
+    significantMovementPeriod = 10
 
-    #timeOfDayStart = "08:30"
-    #timeOfDayEnd = "15:00"
+    timeOfDayStart = "08:30"
+    timeOfDayEnd = "15:00"
 
     windowSize = 30 #in function: GenerateDataSet
-    getNoMovementEvery = 1 #in function: GenerateDataSet3class
+    getNoMovementEvery = 1 #in function: GenerateDataSet
     ####################################################################################################################
 
 
@@ -62,22 +60,18 @@ def main():
 
     print("Getting data from MT5")
     ratesData = GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd)
-
     print("MT5 data collected")
-
-
-    fiveDaysEnable = 0
 
     #TECHNICAL INDICATORS CALCULATIONS##################################################################################
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
     ratesData = ratesData.set_index("time")
-    ratesData = ratesData.between_time('08:30', '15:00')
+    ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     ratesData = MACalculator(ratesData, MAWindowSize, MAPrice)
     ratesData = BollingerBandsCalculator(ratesData, BBPeriod, BBStandardDeviations)
-    ratesData = RelativeStrengthIndexCalculator(ratesData)
+    ratesData = RelativeStrengthIndexCalculator(ratesData, RSIPeriod)
     ratesData = OnBalanceVolume(ratesData)
-    ratesData = AverageTrueRangeCalculator(ratesData)
-    ratesData = ForwardReturns(ratesData)
+    ratesData = AverageTrueRangeCalculator(ratesData, atrPeriod)
+    ratesData = ForwardReturns(ratesData, significantMovementPeriod, atrFactor)
     uniqueDays = sorted(list(set(ratesData.index.date)))  # All days contained within the dataset
     #Prepares data for chart
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
@@ -96,6 +90,8 @@ def main():
         GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClasses)
 
 
+#Starts MT5 and gets rates data according to configuration of input to function
+#Returns an array of the rates
 def GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd):
     if not mt5.initialize():
         print("initialize() failed, error code =", mt5.last_error())
@@ -106,12 +102,21 @@ def GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd):
     mt5.shutdown()
     return(ratesData)
 
+#Takes an array of rates
+#Calculates a Moving Average according to configuration of input to function.
+#Returns the array with moving average column attached for all points.
+#MA column name can be chosen if name is part of input to function.
+#MA standar name is based on number of points used to calculate MA.
 def MACalculator(data, windowSize, MAPrice, name=None):
     if name is None:
         name = "ma" + str(windowSize)
     data[name] = data[MAPrice].rolling(window=windowSize).mean()
     return data
 
+#Takes an array of rates
+#Calculates Bollinger Bands according to configuration of input to function
+#Attaches all calculated results the function needs to the array of rates (STDDev)
+#Returns the array with Bollinger Bands (BBUpper, BBMiddle, BBLower) column attached for all points
 def BollingerBandsCalculator(data, period, standardDeviations):
     data = MACalculator(data, period, "close", "BBMiddle")
     data["stdDev"] = data["close"].rolling(window=period).std()
@@ -119,6 +124,10 @@ def BollingerBandsCalculator(data, period, standardDeviations):
     data["BBLower"] = data["BBMiddle"] - (data["stdDev"] * standardDeviations)
     return data
 
+#Takes an array of rates
+#Calculates Relative Strength Index according to configuration of input to function
+#Attaches all calculated results the function needs to the array of rates (delta, up, down, upmean, downmean, RS)
+#Returns the array with Relative Strength Index (RSI) column attached for all points
 def RelativeStrengthIndexCalculator(data, period=14):
     data["delta"] = data["close"].diff()
     data["up"] = data["delta"].clip(lower=0)
@@ -129,11 +138,21 @@ def RelativeStrengthIndexCalculator(data, period=14):
     data["RSI"] = 100 - 100 / (1 + data["RS"])
     return data
 
+
+#Takes an array of rates
+#Calculates On-Balance Volume according to configuration of input to function
+#Attaches all calculated results the function needs to the array of rates (direction)
+#Returns the array with On-Balance Volume (OBV) column attached for all points
 def OnBalanceVolume(data):
     data["direction"] = np.sign(data["close"].diff())
     data["OBV"] = (data["tick_volume"]*data["direction"]).cumsum()
     return data
 
+#Takes an array of rates
+#Calculates if there are possible forward returns according to configuration of input to function
+#Attaches all calculated results the function needs to the array of rates (futureMax, futureMin, maxUp, maxDown,
+# significantUp, significantDown, conflict)
+#Returns the array with target (0=no movement, 1=up movement 2=down movement) column attached for all points
 def ForwardReturns(data, period=10, atrFactor=5):
     data["futureMax"] = data["close"].shift(-period).rolling(window=period, min_periods=1).max()
     data["futureMin"] = data["close"].shift(-period).rolling(window=period, min_periods=1).min()
@@ -153,6 +172,10 @@ def ForwardReturns(data, period=10, atrFactor=5):
 
     return data
 
+#Takes an array of rates
+#Calculates Average True Range according to configuration of input to function
+#Attaches all calculated results the function needs to the array of rates (prevClose, tr1, tr2, tr3, trueRange)
+#Returns the array with Average True Range (averageTrueRange) column attached for all points
 def AverageTrueRangeCalculator (data, period=14):
     data["prevClose"] = data["close"].shift(1)
     data["tr1"] = data["high"] - data["low"]
@@ -165,37 +188,6 @@ def AverageTrueRangeCalculator (data, period=14):
 
 
 
-def makePlotForReport(chartData):
-    print("HELLO")
-    TIplots = [
-        mpf.make_addplot(chartData["ma30"], color="black", width=0.3),
-        mpf.make_addplot(chartData["BBUpper"], color="cyan", width=0.3),
-        mpf.make_addplot(chartData["BBMiddle"], color="orange", width=0.3),
-        mpf.make_addplot(chartData["BBLower"], color="cyan", width=0.3),
-        mpf.make_addplot(chartData["OBV"], panel=1, color="purple", width=0.5),
-        mpf.make_addplot(chartData["RSI"], panel=2, color="purple", width=0.5)
-    ]
-
-    #customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
-    fig, axlist = mpf.plot(chartData,
-                           type='candle',
-                           style='charles',
-                           addplot=TIplots,
-                           figsize=(12, 8),
-                           returnfig=True)
-
-    # Manually set y-axis labels for each panel
-    axlist[0].set_ylabel("Price + MA + BB")
-    axlist[2].set_ylabel("RSI                  OBV", labelpad=10)  # main panel
-    axlist[2].yaxis.set_label_coords(1.06, -0.05)
-
-    file_path_pdf = "trading_plot.pdf"
-    fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
-
-    print(f"Grafen är sparad som: {file_path_pdf}")
-
-    plt.show()
-    return ""
 
 def makePlot(ratesData, saveFolderName):
     # 1. Day-Change Guard
@@ -267,7 +259,7 @@ def makePlot(ratesData, saveFolderName):
     return ""
 
 def GenerateDataSet(ratesData, saveFolderName, window_size = 30, getNoMovementEvery = 1, numberOfClasses = 3):
-    saveFolderName=os.path.join("dataset", saveFolderName)
+    saveFolderName=os.path.join("datasetNew", saveFolderName)
     total_rows = len(ratesData)
     noMovementCounter = 0
     if numberOfClasses == 2:
@@ -306,6 +298,43 @@ def GenerateDataSet(ratesData, saveFolderName, window_size = 30, getNoMovementEv
 
 if __name__ == '__main__':
     main()
+
+#NON-CRITICAL FUNCTIONS FOR DATA COLLECTION#############################################################################
+
+#Function makes a graph of the input array.
+#Only used to make example plots with guides for reports.
+def makePlotForReport(chartData):
+    print("HELLO")
+    TIplots = [
+        mpf.make_addplot(chartData["ma30"], color="black", width=0.3),
+        mpf.make_addplot(chartData["BBUpper"], color="cyan", width=0.3),
+        mpf.make_addplot(chartData["BBMiddle"], color="orange", width=0.3),
+        mpf.make_addplot(chartData["BBLower"], color="cyan", width=0.3),
+        mpf.make_addplot(chartData["OBV"], panel=1, color="purple", width=0.5),
+        mpf.make_addplot(chartData["RSI"], panel=2, color="purple", width=0.5)
+    ]
+
+    #customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
+    fig, axlist = mpf.plot(chartData,
+                           type='candle',
+                           style='charles',
+                           addplot=TIplots,
+                           figsize=(12, 8),
+                           returnfig=True)
+
+    # Manually set y-axis labels for each panel
+    axlist[0].set_ylabel("Price + MA + BB")
+    axlist[2].set_ylabel("RSI                  OBV", labelpad=10)  # main panel
+    axlist[2].yaxis.set_label_coords(1.06, -0.05)
+
+    file_path_pdf = "trading_plot.pdf"
+    fig.savefig(file_path_pdf, format='pdf', bbox_inches='tight')  # PDF
+
+    print(f"Grafen är sparad som: {file_path_pdf}")
+
+    plt.show()
+    return ""
+########################################################################################################################
 
 #CODE BELLOW HERE IS OUTDATED AND NOT USED##############################################################################
 
