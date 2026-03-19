@@ -14,8 +14,8 @@ import torch.nn.functional as F
 # -------------------------
 # Model and training parameters
 model = "convnextv2_atto"
-num_classes = 3
-dataset_path = "dataset"  # Path to your dataset folder containing 'train' and 'val' subfolders
+num_classes = 1 # Set to 1 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss
+dataset_path = "dataset2"  # Path to your dataset folder containing 'train' and 'val' subfolders
 
 # Hyperparameters
 workers_cpu = 0
@@ -24,9 +24,10 @@ batch_size_cpu = 8
 batch_size_gpu = 16
 
 # Training parameters
-epochs = 5
+num_epochs = 10
 lr = 1e-4
 weight_decay = 0.05
+criterion = nn.BCEWithLogitsLoss() if num_classes == 1 else nn.CrossEntropyLoss()
 #number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
 
 # Augmentation options
@@ -121,14 +122,13 @@ optimizer = torch.optim.AdamW([
     {"params": model.stages[3].parameters(), "lr": lr * 0.1},
 ], weight_decay=weight_decay)
 
-criterion = nn.CrossEntropyLoss()
 
 # -------------------------
 # Scheduler
 # -------------------------
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer,
-    T_max=epochs,
+    T_max=num_epochs,
     eta_min=1e-6
 )
 
@@ -136,50 +136,98 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
 # -------------------------
 # Training
 # -------------------------
-num_epochs = epochs
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
 
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
+if num_classes > 1:
+    # Training loop for 2 or more classes with standard CrossEntropyLoss
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
 
-        optimizer.zero_grad()
-        
-        # Forward pass
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
 
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
+            optimizer.zero_grad()
 
-        running_loss += loss.item()
-
-    avg_loss = running_loss / len(train_loader)
-
-    # validation
-    model.eval()
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-        for images,labels in val_loader:
-
-            images = images.to(device)
-            labels = labels.to(device)
-
+            # Forward pass
             outputs = model(images)
-            preds = outputs.argmax(1)
+            loss = criterion(outputs, labels)
 
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+            # Backward pass and optimization
+            loss.backward()
+            optimizer.step()
 
-    acc = correct/total
+            running_loss += loss.item()
 
-    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+        avg_loss = running_loss / len(train_loader)
 
-    scheduler.step()
+        # validation
+        model.eval()
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for images, labels in val_loader:
+
+                images = images.to(device)
+                labels = labels.to(device)
+
+                outputs = model(images)
+                preds = outputs.argmax(1)
+
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+
+        acc = correct / total
+
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+
+        scheduler.step()
+else:
+    # Training loop for binary classification with probability output
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss = 0.0
+
+        for images, labels in train_loader:
+            images = images.to(device)
+            labels = labels.float().unsqueeze(1).to(device)
+
+            optimizer.zero_grad()
+
+            # Forward pass
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            # Backward pass and optimization
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        avg_loss = running_loss / len(train_loader)
+
+        # validation
+        model.eval()
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for images, labels in val_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+
+                outputs = model(images)
+                probs = torch.sigmoid(outputs).squeeze(1)
+                preds = (probs > 0.5).long()
+
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+
+        acc = correct / total
+
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
+
+        scheduler.step()
 
 
 
@@ -197,8 +245,13 @@ with torch.no_grad():
         labels = labels.to(device)
         outputs = model(images)
 
-        preds = outputs.argmax(1)
-        confidences = F.softmax(outputs, dim=1).max(1)[0]
+        if num_classes > 1:
+            preds = outputs.argmax(1)
+            confidences = F.softmax(outputs, dim=1).max(1)[0]
+        else:
+            probs = torch.sigmoid(outputs).squeeze(1)
+            preds = (probs > 0.5).long()
+            confidences = torch.where(preds == 1, probs, 1 - probs)
 
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
@@ -224,6 +277,23 @@ print(f"Total samples: {len(all_preds)}")
 print(f"Correct predictions: {sum(np.array(all_preds) == np.array(all_labels))}")
 print(f"Accuracy: {sum(np.array(all_preds) == np.array(all_labels)) / len(all_preds):.4f}")
 print(f"Average confidence: {np.mean(all_confidences):.4f}")
+
+
+all_preds_np = np.array(all_preds)
+all_conf_np = np.array(all_confidences)
+
+print("\nConfidence stats by predicted class:")
+for class_idx, class_name in enumerate(class_names):
+    class_conf = all_conf_np[all_preds_np == class_idx]
+    if class_conf.size == 0:
+        print(f"{class_name:15s} | n=0")
+    else:
+        print(
+            f"{class_name:15s} | n={class_conf.size:4d} | "
+            f"min={class_conf.min():.4f} | mean={class_conf.mean():.4f} | max={class_conf.max():.4f}"
+        )
+
+
 
 # -------------------------
 # Save model
