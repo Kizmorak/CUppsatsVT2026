@@ -7,33 +7,39 @@ import pandas as pd
 import os
 import shutil
 from matplotlib.colors import LinearSegmentedColormap
-
-# Non-interactive mode avoids GUI bitmap pressure when generating many images.
-plt.ioff()
 import pytz
 
 #VARIABLES OK TO CHANGE/TEST########################################################################################
-ratesSymbol = "USDSEK"
-ratesTimeFrame = mt5.TIMEFRAME_M1
-dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
-dateStart = dateEnd - timedelta(days=(80))
-trainingDaysRequested = -(80) #Only change value in parentheses
-validationDaysRequested = -(20) #Only change value in parentheses
+
+dateEnd = datetime(2026, 3, 20) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+dateStart = dateEnd - timedelta(days=(60))
+trainingDaysRequested = -(30) #Only change value in parentheses
+validationDaysRequested = -(10) #Only change value in parentheses
+
 trainingFolderName = "train"
 validationFolderName = "val"
-
-# # Christiana fix
-# timezone = pytz.timezone("Etc/UTC")
-# # create 'datetime' objects in UTC time zone to avoid the implementation of a local time zone offset
-# utc_from = datetime(2025, 12, 1, tzinfo=timezone)
-# utc_to = datetime(2026, 2, 27, hour = 13, tzinfo=timezone)
-
 numberOfClasses = 3 #Set to number of classes requested to be generated
 generateDataset = 1 #Set to 1 if you want a dataset generated
+getNoMovementEvery = 10 #in function: GenerateDataSet
+
 ####################################################################################################################
 
+#CHART VARIABLES: 0 is not included. 1 is included##################################################################
+includeTIs = 1
+
+includeMA30 = 0
+includeBB = 1
+includeOBV = 1
+includeRSI = 1
+####################################################################################################################
 
 #VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
+ratesSymbol = "USDSEK"
+ratesTimeFrame = mt5.TIMEFRAME_M1
+
+timeOfDayStart = "08:30"
+timeOfDayEnd = "15:00"
+
 MAWindowSize = 30
 MAPrice = "close"
 
@@ -47,26 +53,14 @@ RSIPeriod = 14
 
 significantMovementPeriod = 10
 
-timeOfDayStart = "08:30"
-timeOfDayEnd = "15:00"
-
 windowSize = 30 #in function: GenerateDataSet
-getNoMovementEvery = 10 #in function: GenerateDataSet
 ####################################################################################################################
 
-
-#CHART VARIABLES: 0 is not included. 1 is included##################################################################
-includeTIs = 1
-
-includeMA30 = 0
-includeBB = 1
-includeOBV = 1
-includeRSI = 1
-####################################################################################################################
+# Non-interactive mode avoids GUI bitmap pressure when generating many images.
+plt.ioff()
 
 def main():
     print("This is the main function")
-
 
     print("Main variables set")
 
@@ -79,7 +73,6 @@ def main():
     #TECHNICAL INDICATORS CALCULATIONS##################################################################################
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
     ratesData = ratesData.set_index("time")
-    ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     ratesData = MACalculator(ratesData, MAWindowSize, MAPrice)
     ratesData = BollingerBandsCalculator(ratesData, BBPeriod, BBStandardDeviations)
     ratesData = RelativeStrengthIndexCalculator(ratesData, RSIPeriod)
@@ -87,6 +80,7 @@ def main():
     ratesData = AverageTrueRangeCalculator(ratesData, atrPeriod)
     ratesData = ForwardReturns(ratesData, significantMovementPeriod, atrFactor)
     uniqueDays = sorted(list(set(ratesData.index.date)))  # All days contained within the dataset
+    ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     #Prepares data for chart
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
     ####################################################################################################################
@@ -113,7 +107,6 @@ def GetDataFromMT5(symbol, timeFrame, start, end):
     if not mt5.initialize():
         print("initialize() failed, error code =", mt5.last_error())
         quit()
-
 
     ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame, start, end))
 
@@ -155,7 +148,6 @@ def RelativeStrengthIndexCalculator(data, period=14):
     data["RS"] = data["upMean"] / data["downMean"]
     data["RSI"] = 100 - 100 / (1 + data["RS"])
     return data
-
 
 #Takes an array of rates
 #Calculates On-Balance Volume according to configuration of input to function
@@ -203,9 +195,6 @@ def AverageTrueRangeCalculator (data, period=14):
 
     data["averageTrueRange"] = data["trueRange"].rolling(window=period).mean()
     return data
-
-
-
 
 def makePlot(ratesData, saveFolderName):
     #Day-Change Guard
@@ -301,8 +290,6 @@ def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery =
     # Pre-create all paths if not available
     for folder in folders:
         os.makedirs(os.path.join(saveFolderName, folder), exist_ok=True)
-
-
 
     #We start the loop at "window" so the first slice is valid
     for i in range(window, total_rows + 1):
