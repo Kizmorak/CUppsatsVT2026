@@ -8,16 +8,25 @@ import os
 import shutil
 from matplotlib.colors import LinearSegmentedColormap
 
+# Non-interactive mode avoids GUI bitmap pressure when generating many images.
+plt.ioff()
+import pytz
+
 #VARIABLES OK TO CHANGE/TEST########################################################################################
 ratesSymbol = "USDSEK"
 ratesTimeFrame = mt5.TIMEFRAME_M1
 dateEnd = datetime(2026, 2, 27) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
-dateStart = dateEnd - timedelta(days=(360))
-trainingDaysRequested = -(1) #Only change value in parentheses
-validationDaysRequested = -(1) #Only change value in parentheses
+dateStart = dateEnd - timedelta(days=(80))
+trainingDaysRequested = -(80) #Only change value in parentheses
+validationDaysRequested = -(20) #Only change value in parentheses
 trainingFolderName = "train"
 validationFolderName = "val"
 
+# # Christiana fix
+# timezone = pytz.timezone("Etc/UTC")
+# # create 'datetime' objects in UTC time zone to avoid the implementation of a local time zone offset
+# utc_from = datetime(2025, 12, 1, tzinfo=timezone)
+# utc_to = datetime(2026, 2, 27, hour = 13, tzinfo=timezone)
 
 numberOfClasses = 3 #Set to number of classes requested to be generated
 generateDataset = 1 #Set to 1 if you want a dataset generated
@@ -63,6 +72,8 @@ def main():
 
     print("Getting data from MT5")
     ratesData = GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd)
+    print(f"Data from MT5 collected: {len(ratesData)} rows")
+    print(ratesData)
     print("MT5 data collected")
 
     #TECHNICAL INDICATORS CALCULATIONS##################################################################################
@@ -103,7 +114,8 @@ def GetDataFromMT5(symbol, timeFrame, start, end):
         print("initialize() failed, error code =", mt5.last_error())
         quit()
 
-    ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame,start,end))
+
+    ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame, start, end))
 
     mt5.shutdown()
     return(ratesData)
@@ -211,6 +223,7 @@ def makePlot(ratesData, saveFolderName):
         return False
 
     #TI inclusion based on configuration
+    TIplots = []
     if includeTIs:
         plotsConfig = []
         if includeMA30 == 1:
@@ -264,13 +277,11 @@ def makePlot(ratesData, saveFolderName):
     #Save figure
     fig.savefig(file_path)
 
+    # Explicitly release figure memory to avoid "failed to allocate bitmap" errors.
+    plt.close(fig)
+
     print(f"Grafen är sparad som: {file_path}")
 
-    #Show graph
-    plt.show()
-    #Close graph
-    plt.close()
-    return ""
 
 def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery = 1, numberOfClasses = 3):
     # Create variables used by function
