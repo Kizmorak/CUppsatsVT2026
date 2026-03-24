@@ -10,18 +10,20 @@ from matplotlib.colors import LinearSegmentedColormap
 import pytz
 
 #VARIABLES OK TO CHANGE/TEST########################################################################################
-
-dateEnd = datetime(2026, 3, 20) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
-dateStart = dateEnd - timedelta(days=(60))
-trainingDaysRequested = -(30) #Only change value in parentheses
-validationDaysRequested = -(10) #Only change value in parentheses
-
+ratesSymbol = "USDSEK"
+ratesTimeFrame = mt5.TIMEFRAME_M1
+dateEnd = datetime(2026, 3, 13) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+dateStart = dateEnd - timedelta(days=(360))
+trainingDaysRequested = -(80) #Only change value in parentheses
+validationDaysRequested = -(20) #Only change value in parentheses
 trainingFolderName = "train"
 validationFolderName = "val"
-numberOfClasses = 3 #Set to number of classes requested to be generated
-generateDataset = 1 #Set to 1 if you want a dataset generated
-getNoMovementEvery = 10 #in function: GenerateDataSet
 
+
+numberOfClasses = 2 #Set to number of classes requested to be generated
+generateDataset = 1 #Set to 1 if you want a dataset generated
+
+createCSV = 1 #Set to 1 if you want a CSV of the complete dataset
 ####################################################################################################################
 
 #CHART VARIABLES: 0 is not included. 1 is included##################################################################
@@ -54,6 +56,7 @@ RSIPeriod = 14
 significantMovementPeriod = 10
 
 windowSize = 30 #in function: GenerateDataSet
+getNoMovementEvery = 1 #in function: GenerateDataSet
 ####################################################################################################################
 
 # Non-interactive mode avoids GUI bitmap pressure when generating many images.
@@ -70,9 +73,12 @@ def main():
     print(ratesData)
     print("MT5 data collected")
 
+    print(ratesData.head())
+
     #TECHNICAL INDICATORS CALCULATIONS##################################################################################
     ratesData["time"] = pd.to_datetime(ratesData["time"], unit="s")
     ratesData = ratesData.set_index("time")
+    #ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     ratesData = MACalculator(ratesData, MAWindowSize, MAPrice)
     ratesData = BollingerBandsCalculator(ratesData, BBPeriod, BBStandardDeviations)
     ratesData = RelativeStrengthIndexCalculator(ratesData, RSIPeriod)
@@ -100,6 +106,10 @@ def main():
         GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClasses)
         GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClasses)
 
+    if createCSV == 1:
+        createCSVFromDataset(ratesData, "fullDataset")
+        createCSVFromDataset(trainingRatesData, "trainingDataset")
+        createCSVFromDataset(validationRatesData, "validationDataset")
 
 #Starts MT5 and gets rates data according to configuration of input to function
 #Returns an array of the rates
@@ -108,7 +118,8 @@ def GetDataFromMT5(symbol, timeFrame, start, end):
         print("initialize() failed, error code =", mt5.last_error())
         quit()
 
-    ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame, start, end))
+    ratesData = pd.DataFrame(mt5.copy_rates_range(symbol,timeFrame,start,end))
+    print(ratesData.columns)
 
     mt5.shutdown()
     return(ratesData)
@@ -271,6 +282,11 @@ def makePlot(ratesData, saveFolderName):
 
     print(f"Grafen är sparad som: {file_path}")
 
+    #Show graph
+    #plt.show()
+    #Close graph
+    plt.close()
+    return ""
 
 def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery = 1, numberOfClasses = 3):
     # Create variables used by function
@@ -304,12 +320,20 @@ def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery =
             elif current_target == 2:
                 makePlot(subset, os.path.join(saveFolderName, "downMovement"))
             elif current_target == 0:
-                if noMovementCounter % getNoMovementEvery == 0:
-                    makePlot(subset, os.path.join(saveFolderName, "noMovement"))
-                noMovementCounter += 1
+                if numberOfClasses == 3:
+                    if noMovementCounter % getNoMovementEvery == 0:
+                        makePlot(subset, os.path.join(saveFolderName, "noMovement"))
+                    noMovementCounter += 1
 
     return ""
 
+def createCSVFromDataset(dataset, filename="output.csv"):
+    """
+    Saves a pandas DataFrame to a CSV file.
+    """
+    # index=False avoids saving the row numbers (0, 1, 2...) as a column
+    dataset.to_csv(filename, encoding='utf-8')
+    print(f"File saved successfully as {filename}")
 
 if __name__ == '__main__':
     main()
