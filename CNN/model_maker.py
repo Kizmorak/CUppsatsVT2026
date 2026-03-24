@@ -7,15 +7,35 @@ from torchvision.datasets import ImageFolder
 from sklearn.metrics import confusion_matrix
 import numpy as np
 import torch.nn.functional as F
+import argparse
+from enum import Enum
 
+class ModelOutputClasses(Enum):
+    A_B = "A/B"
+    A_B_NONE = "A/B/NONE"
+
+class DatasetPaths(Enum):
+    DATASET_ALL_TIs = "dataset_all_TIs"
+    DATASET_NO_TIs = "dataset_no_TIs"
+    DATASET_2_TIs = "dataset_2_TIs"
+    def __str__(self):        
+        return str(self.value)
 
 # -------------------------
-# Variabler och inställningar
+# Variables and hyperparameters
 # -------------------------
 # Model and training parameters
-model = "convnextv2_atto"
-num_classes = 1 # Set to 1 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss
-dataset_path = "dataset_2_class_50_10_noTIs"  # Path to your dataset folder containing 'train' and 'val' subfolders
+model_name = "convnextv2_atto"
+default_model_output_classes = ModelOutputClasses.A_B_NONE
+default_dataset_path = DatasetPaths.DATASET_ALL_TIs  # Path to your dataset folder containing 'train', 'val' and 'backtest' subfolders
+
+# Training parameters
+default_num_epochs = 10
+expected_none_ratio = 15/18  # Expected ratio of NONE samples in the backtesting set (used for auto-tuning thresholds)
+#Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
+
+# Augmentation options
+use_random_affine = True
 
 # Hyperparameters
 workers_cpu = 0
@@ -23,26 +43,15 @@ workers_gpu = 4
 batch_size_cpu = 8
 batch_size_gpu = 16
 
-# Training parameters
-num_epochs = 10
-lr = 1e-4
-weight_decay = 0.05
-criterion = nn.BCEWithLogitsLoss() if num_classes == 1 else nn.CrossEntropyLoss()
-#number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
-
-# Augmentation options
-use_random_affine = True
-
-
 # Auto-tuning options for open-set NONE thresholding
 auto_tune_none_thresholds = True
-expected_none_ratio = 0.83  # Example for NONE being about 10x each of A and B
+
+
 
 # -------------------------
 # Device
 # -------------------------
-
-def device_setup():
+def device_spec_setup():
     # Set the device to GPU if available, otherwise use CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
@@ -52,20 +61,19 @@ def device_setup():
     num_workers = workers_cpu if device.type == "cpu" else workers_gpu
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
-device_setup()
+    return device, batch_size, num_workers
 
 # -------------------------
 # Transforms
 # -------------------------
-
-def transforms():
+def transforms_setup():
     # Define the mean and standard deviation for normalization (these are commonly used values for pre-trained models)
     mean = [0.485, 0.456, 0.406]
     std  = [0.229, 0.224, 0.225]
 
     # Limited data augmentation for fine-tuning
     if use_random_affine:
-        transform = transforms.Compose([
+        train_transform = transforms.Compose([
             transforms.RandomAffine(
                 degrees=0,
                 translate=(0.03, 0.03),
@@ -75,43 +83,65 @@ def transforms():
             transforms.Normalize(mean, std)
         ])
     else:
-        transform = transforms.Compose([
+        train_transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-    return transform
-transform = transforms()
+
+    # Validation/backtesting should be deterministic (no random augmentation).
+    eval_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+    return train_transform, eval_transform
 
 # -------------------------
 # Dataset
 # -------------------------
-def dataset_setup():
-    train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=transform)
-    val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=transform)
+def dataset_setup(batch_size, num_workers, dataset_path):
+    train_transform, eval_transform = transforms_setup()
+    
+    train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=train_transform)
+    val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=eval_transform)
 
-    # Handle class imbalance
-    class_counts = np.bincount(train_dataset.targets, minlength=num_classes).tolist()
-    class_weights = 1. / torch.tensor(class_counts, dtype=torch.float)
+    print(f"Dataset path '{dataset_path}':")
 
-    sample_weights = [class_weights[label] for label in train_dataset.targets]
-    sampler = WeightedRandomSampler(sample_weights, len(sample_weights))
+    # Balanced sampler
+    targets = np.array(train_dataset.targets)
+    class_counts = np.bincount(targets)
+    class_weights = np.divide(1.0, class_counts, out=np.zeros_like(class_counts, dtype=float), where=class_counts > 0)
+    sample_weights = class_weights[targets]
+    sampler = WeightedRandomSampler(
+        weights=torch.as_tensor(sample_weights, dtype=torch.double),
+        num_samples=len(sample_weights),
+        replacement=True,
+    )
 
+    print("Train class counts:", {train_dataset.classes[i]: int(c) for i, c in enumerate(class_counts)})
     train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    return train_loader, val_loader
-train_loader, val_loader = dataset_setup()
-
+    return train_dataset, train_loader, val_loader
 
 # -------------------------
 # Model
 # -------------------------
-def model_setup():
+def model_setup(device, model_output_classes):
     model = timm.create_model(
-        model,
+        model_name,
         pretrained=True
     )
-    model.reset_classifier(num_classes=num_classes)
+
+    # Compatibility fallback for timm variants where ConvNeXt may miss norm_pre.
+    # (convnextv2_atto seems to have it, but this ensures the code works across more timm versions without modification)
+    if not hasattr(model, "norm_pre"):
+        model.norm_pre = nn.Identity()
+    # says copilot to fix a bug...
+
+
+    model.reset_classifier(2 if model_output_classes == ModelOutputClasses.A_B else 1)
     model.to(device)
+
+    print(f"Model: {model_name}, Output class: {model_output_classes}")
 
     # Freeze all layers except the head
     for p in model.parameters():
@@ -125,42 +155,39 @@ def model_setup():
         if "stages.3" in name:
             p.requires_grad = True
     return model
-model = model_setup()
-
 
 # -------------------------
 # Loss + optimizer
 # -------------------------
 # Define the optimizer (AdamW is commonly used for training vision models)
-def optimizer_setup():
+def optimizer_setup(model):
+    lr = 1e-4
+    weight_decay = 0.05
     optimizer = torch.optim.AdamW([
         {"params": model.head.parameters(), "lr": lr},
         {"params": model.stages[3].parameters(), "lr": lr * 0.1},
     ], weight_decay=weight_decay)
     return optimizer
-optimizer = optimizer_setup()
-
 
 # -------------------------
 # Scheduler
 # -------------------------
-
-def scheduler_setup():
+def scheduler_setup(optimizer, num_epochs):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=num_epochs,
         eta_min=1e-6
     )
     return scheduler
-scheduler = scheduler_setup()
-
 
 # -------------------------
 # Training
 # -------------------------
-def train():
-    if num_classes > 1:
-        # Training loop for 2 or more classes with standard CrossEntropyLoss
+def train(model, train_loader, val_loader, optimizer, scheduler, device, model_output_classes, num_epochs):
+
+    criterion = nn.BCEWithLogitsLoss() if model_output_classes == ModelOutputClasses.A_B_NONE else nn.CrossEntropyLoss()
+    if model_output_classes == ModelOutputClasses.A_B:
+        # Training loop for 2 classes with standard CrossEntropyLoss
         for epoch in range(num_epochs):
             model.train()
             running_loss = 0.0
@@ -250,13 +277,11 @@ def train():
             print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}")
 
             scheduler.step()
-train()
 
 # -------------------------
 # Evaluation on val (A/B)
 # -------------------------
-def evaluate_val_2_classes():
-    class_names = train_dataset.classes
+def evaluate_A_B(model, val_loader, device, model_output_classes, class_names):
     val_preds = []
     val_labels = []
     val_confidences = []
@@ -268,7 +293,7 @@ def evaluate_val_2_classes():
             labels = labels.to(device)
             outputs = model(images)
 
-            if num_classes > 1:
+            if model_output_classes == ModelOutputClasses.A_B:
                 preds = outputs.argmax(1)
                 confidences = F.softmax(outputs, dim=1).max(1)[0]
             else:
@@ -297,19 +322,17 @@ def evaluate_val_2_classes():
     print(f"Correct predictions: {sum(np.array(val_preds) == np.array(val_labels))}")
     print(f"Accuracy: {sum(np.array(val_preds) == np.array(val_labels)) / len(val_preds):.4f}")
     print(f"Average confidence: {np.mean(val_confidences):.4f}")
-evaluate_val_2_classes()
 
 # -------------------------
 # Evaluation on none_val (A/B/NONE)
 # -------------------------
-def evaluate_none_val():
-    none_val_dataset = ImageFolder(root=f"{dataset_path}/none_val_40_days", transform=transform)
+def evaluate_A_B_NONE(model, device, dataset_path, batch_size, num_workers, eval_transform, class_names):
+    none_val_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
     none_val_loader = DataLoader(none_val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     none_label_name = "NONE"
     none_probs = []
     none_labels = []
-
 
     def label_to_name_none(label_idx):
         if label_idx == 2:
@@ -318,14 +341,12 @@ def evaluate_none_val():
             return class_names[label_idx]
         return f"UNKNOWN_{label_idx}"
 
-
     def class_name_to_open_set_label(name):
-        name_lower = name.lower()
-        if "none" in name_lower or "nomovement" in name_lower or "no_movement" in name_lower or "no movement" in name_lower:
+        if name == "noMovement":
             return 2
-        if "up" in name_lower:
+        if name == "upMovement":
             return 1
-        if "down" in name_lower:
+        if name == "downMovement":
             return 0
         return None
 
@@ -481,16 +502,84 @@ def evaluate_none_val():
 
     print("Open-set records saved to predictions_none_val.txt")
     print("Open-set metrics saved to open_set_metrics.txt")
-evaluate_none_val()
 
 # -------------------------
 # Save model
 # -------------------------
-torch.save(model.state_dict(),"convnext_atto_finetuned.pth")
+def save_model(model):
+    torch.save(model.state_dict(), "convnext_atto_finetuned.pth")
 
 
 
+def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs):
+    # -------------------------
+    # Setup
+    # -------------------------
+    device, batch_size, num_workers = device_spec_setup()
+    _, eval_transform = transforms_setup()
+    train_dataset, train_loader, val_loader = dataset_setup(batch_size=batch_size, num_workers=num_workers, dataset_path=dataset_path)
+    model = model_setup(device=device, model_output_classes=model_output_classes)
+    optimizer = optimizer_setup(model=model)
+    scheduler = scheduler_setup(optimizer=optimizer, num_epochs=num_epochs)
 
+    # -------------------------
+    # Training
+    # -------------------------
+    train(
+        model=model, 
+        train_loader=train_loader, 
+        val_loader=val_loader, 
+        optimizer=optimizer, 
+        scheduler=scheduler, 
+        device=device, 
+        model_output_classes=model_output_classes, 
+        num_epochs=num_epochs
+    )
+    
+    
+    # -------------------------
+    # Evaluation
+    # -------------------------
+    evaluate_A_B(model=model, val_loader=val_loader, device=device, model_output_classes=model_output_classes, class_names=train_dataset.classes)
+    evaluate_A_B_NONE(
+        model=model,
+        device=device,
+        dataset_path=dataset_path,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        eval_transform=eval_transform,
+        class_names=train_dataset.classes,
+    )
+
+    save_model(model=model)
+
+if __name__ == '__main__':
+        # -------------------------
+    # Argument parsing to allow easy configuration from command line
+    # -------------------------
+    argparser = argparse.ArgumentParser(prog = "CNN Fine-tuning", description="Fine-tune ConvNeXt on A/B classification with open-set NONE evaluation")
+    argparser.add_argument("-c", "--model_output_classes", type=int, default=3, help="Model output classes (3 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss)")
+    argparser.add_argument("-d", "--dataset_path", type=str, default="dataset_all_TIs", help="dataset_all_TIs, dataset_no_TIs or dataset_2_TIs")
+    argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
+    args = argparser.parse_args()
+    
+    if(args.model_output_classes == 2):
+        model_output_classes = ModelOutputClasses.A_B
+    elif(args.model_output_classes == 3):
+        model_output_classes = ModelOutputClasses.A_B_NONE
+    else:
+        raise ValueError(f"Invalid model_output_classes argument: {args.model_output_classes}")
+
+    if(args.dataset_path == "dataset_all_TIs"):
+        dataset_path = DatasetPaths.DATASET_ALL_TIs
+    elif(args.dataset_path == "dataset_no_TIs"):
+        dataset_path = DatasetPaths.DATASET_NO_TIs
+    elif(args.dataset_path == "dataset_2_TIs"):
+        dataset_path = DatasetPaths.DATASET_2_TIs
+    else:
+        raise ValueError(f"Invalid dataset_path argument: {args.dataset_path}")
+    
+    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs)
 
 """ #Grad-CAM visualization to check which parts of the image the model is focusing on for its predictions
 from pytorch_grad_cam import GradCAM
