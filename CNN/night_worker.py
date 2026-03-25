@@ -27,4 +27,4 @@ def add_eval_results_to_file(model_output_classes, dataset_path, num_epochs):
         print(f"Error occurred while writing evaluation results to file: {e}")
 
 make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.DATASET_ALL_TIs, num_epochs=1)
-make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.DATASET_ALL_TIs, num_epochs=1)
+make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.DATASET_ALL_TIs, num_epochs=2)

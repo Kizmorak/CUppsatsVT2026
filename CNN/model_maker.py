@@ -9,6 +9,7 @@ import numpy as np
 import torch.nn.functional as F
 import argparse
 from enum import Enum
+from datetime import datetime
 
 class ModelOutputClasses(Enum):
     A_B = "A/B"
@@ -64,7 +65,7 @@ threshold_sweep_steps = 61
 def device_spec_setup():
     # Set the device to GPU if available, otherwise use CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+    print("\n\nUsing device:", device)
 
     #optimize based on hardware
     batch_size = batch_size_cpu if device.type == "cpu" else batch_size_gpu
@@ -291,7 +292,7 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, model_o
 # -------------------------
 # Evaluation on val (A/B)
 # -------------------------
-def evaluate_A_B(model, val_loader, device, model_output_classes, class_names):
+def evaluate_A_B(model, val_loader, device, model_output_classes, class_names, dataset_path):
     val_preds = []
     val_labels = []
     val_confidences = []
@@ -331,8 +332,11 @@ def evaluate_A_B(model, val_loader, device, model_output_classes, class_names):
 
     # Spara alla prints i en fil
     with open("A_B_eval_results.txt", "a") as f:
+        f.write(f"-" * 50 + "\n")
+        f.write("Validation (A/B) summary:\n")
+        f.write(f"Datetime: {datetime.now()}\n")
+        f.write(f"Dataset path: {dataset_path}\n")
         f.write(f"Validation (A/B) confusion matrix:\n{cm_val}\n")
-        f.write("Validation summary:\n")
         f.write(f"Total samples: {len(val_preds)}\n")
         f.write(f"Correct predictions: {sum(np.array(val_preds) == np.array(val_labels))}\n")
         f.write(f"Accuracy: {sum(np.array(val_preds) == np.array(val_labels)) / len(val_preds):.4f}\n")
@@ -390,21 +394,32 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
 
     high_confidence_threshold = manual_high_confidence_threshold
     low_confidence_threshold = manual_low_confidence_threshold
-
-    #print a summary of the A/B/NOMOV evaluation before thresholding to understand the raw model outputs
-    print(f"\nA/B/NOMOV evaluation (before thresholding):")
-    print(f"Total samples: {len(nomov_probs)}")
-    print(f"High confidence samples: {sum(1 for p in nomov_probs if p >= high_confidence_threshold)}")
-    print(f"Low confidence samples: {sum(1 for p in nomov_probs if p <= low_confidence_threshold)}")
-    print(f"Uncertain samples: {sum(1 for p in nomov_probs if low_confidence_threshold < p < high_confidence_threshold)}")
-
-
+    
     def predict_open_set(prob, low, high):
         if prob <= low:
             return 0
         if prob >= high:
             return 1
         return 2
+    nomov_preds = [predict_open_set(prob, low_confidence_threshold, high_confidence_threshold) for prob in nomov_probs]
+    
+    print("\nA/B/NOMOV summary:")
+    print(f"Total samples: {len(nomov_preds)}")
+    
+    nomov_labels_np = np.array(nomov_labels)
+    nomov_preds_np = np.array(nomov_preds)
+    nomov_probs_np = np.array(nomov_probs)
+    nomov_accuracy = sum(nomov_preds_np == nomov_labels_np) / len(nomov_preds)
+
+    #print a summary of the A/B/NOMOV evaluation before thresholding to understand the raw model outputs
+    print(f"\nA/B/NOMOV evaluation (before thresholding):")
+    print(f"High confidence samples: {sum(1 for p in nomov_probs if p >= high_confidence_threshold)}")
+    print(f"Low confidence samples: {sum(1 for p in nomov_probs if p <= low_confidence_threshold)}")
+    print(f"Uncertain samples: {sum(1 for p in nomov_probs if low_confidence_threshold < p < high_confidence_threshold)}")
+    print(f"\nCorrect predictions: {sum(nomov_preds_np == nomov_labels_np)}")
+    print(f"Accuracy: {nomov_accuracy:.4f}")
+    print(f"Average confidence: {np.mean(nomov_probs):.4f}")
+
 
     # Compute metrics for given thresholds (used for auto-tuning)
     def compute_metrics_for_thresholds(low, high):
@@ -485,23 +500,15 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
             )
 
 
-    nomov_preds = [predict_open_set(prob, low_confidence_threshold, high_confidence_threshold) for prob in nomov_probs]
     cm_nomov = confusion_matrix(nomov_labels, nomov_preds, labels=[0, 1, 2])
-    nomov_labels_np = np.array(nomov_labels)
-    nomov_preds_np = np.array(nomov_preds)
-    nomov_probs_np = np.array(nomov_probs)
 
+    print(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}")
+   
     print("\nOpen-set (A/B/NOMOV) confusion matrix:")
     print("Matrix labels order:", [label_to_name_nomov(i) for i in [0, 1, 2]])
     print(cm_nomov)
-    print(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}")
-    nomov_accuracy = sum(nomov_preds_np == nomov_labels_np) / len(nomov_preds)
-    print("A/B/NOMOV summary:")
-    print(f"Total samples: {len(nomov_preds)}")
-    print(f"Correct predictions: {sum(nomov_preds_np == nomov_labels_np)}")
-    print(f"Accuracy: {nomov_accuracy:.4f}")
-    print(f"Average confidence: {np.mean(nomov_probs):.4f}")
 
+    
     print("\nA/B/NOMOV confidence stats by predicted class:")
     for class_idx in [0, 1, 2]:
         class_name = label_to_name_nomov(class_idx)
@@ -544,6 +551,8 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
 
     balanced_accuracy = float(np.mean(recall_per_class))
     macro_f1 = float(np.mean(f1_per_class))
+    print(f"\nBalanced accuracy (macro recall): {balanced_accuracy:.4f}")
+    print(f"Macro F1: {macro_f1:.4f}")
 
     # Prior-adjusted accuracy using class recalls (more informative when classes are imbalanced)
     equal_prior = np.array([1 / 3, 1 / 3, 1 / 3], dtype=float)
@@ -566,13 +575,24 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
             f"precision={precision_per_class[class_idx]:.4f} | "
             f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}"
         )
-    print(f"Balanced accuracy (macro recall): {balanced_accuracy:.4f}")
-    print(f"Macro F1: {macro_f1:.4f}")
-    print(f"Adjusted accuracy (equal prior A/B/NOMOV): {adjusted_acc_equal:.4f}")
-    print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
+    
+    # print(f"Adjusted accuracy (equal prior A/B/NOMOV): {adjusted_acc_equal:.4f}")
+    # print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
 
-# Spara alla prints i en fil
+# Print accuracy for only the A/B subset of the nomov_val set to understand how well the model distinguishes A vs B without considering NOMOV.
+    ab_mask = nomov_labels_np < 2
+    if np.sum(ab_mask) > 0:
+        ab_accuracy = np.mean(nomov_preds_np[ab_mask] == nomov_labels_np[ab_mask])
+        print(f"\nA/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})")
+
+# -------------------------
+# Save evaluation results to a file for record-keeping and analysis
+# -------------------------
     with open("A_B_NOMOV_eval_results.txt", "a") as f:
+        f.write("-" * 50 + "\n")
+        f.write("A/B/NOMOV evaluation summary:\n")
+        f.write(f"Datetime: {datetime.now()}\n")
+        f.write(f"Dataset path: {dataset_path}\n")
         f.write(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}\n")
         f.write("A/B/NOMOV summary:\n")
         f.write(f"Total samples: {len(nomov_preds)}\n")
@@ -610,11 +630,10 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
                 f"{class_name:15s} | support={int(support[class_idx]):4d} | precision={precision_per_class[class_idx]:.4f} | "
                 f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}\n"
             )
-        f.write(f"Balanced accuracy (macro recall): {balanced_accuracy:.4f}\n")
+        f.write(f"\nBalanced accuracy (macro recall): {balanced_accuracy:.4f}\n")
         f.write(f"Macro F1: {macro_f1:.4f}\n")
-        f.write(f"Adjusted accuracy (equal prior A/B/NOMOV): {adjusted_acc_equal:.4f}\n")
-        f.write(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}\n")
-
+        f.write(f"A/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})\n")
+        f.write(f"-" * 50 + "\n")
 
 # -------------------------
 # Save model
@@ -653,7 +672,7 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs):
     # -------------------------
     # Evaluation
     # -------------------------
-    evaluate_A_B(model=model, val_loader=val_loader, device=device, model_output_classes=model_output_classes, class_names=train_dataset.classes)
+    evaluate_A_B(model=model, val_loader=val_loader, device=device, model_output_classes=model_output_classes, class_names=train_dataset.classes, dataset_path=dataset_path)
     evaluate_A_B_NOMOV(
         model=model,
         device=device,
@@ -667,7 +686,7 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs):
     save_model(model=model)
 
 if __name__ == '__main__':
-        # -------------------------
+    # -------------------------
     # Argument parsing to allow easy configuration from command line
     # -------------------------
     argparser = argparse.ArgumentParser(prog = "CNN Fine-tuning", description="Fine-tune ConvNeXt on A/B classification with A/B/NOMOV NOMOV evaluation")
