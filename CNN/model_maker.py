@@ -34,7 +34,7 @@ default_dataset_path = DatasetPaths.DATASET_ALL_TIs  # Path to your dataset fold
 default_num_epochs = 10
 expected_nomov_ratio = 0.8  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
 #Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
-
+num_stages_to_unfreeze = 1
 # Augmentation options
 use_random_affine = True
 
@@ -45,7 +45,7 @@ batch_size_cpu = 8
 batch_size_gpu = 16
 
 # Auto-tuning options for NOMOV thresholding
-auto_tune_nomov_thresholds = False
+auto_tune_nomov_thresholds = True
 # Manual fallback thresholds (used when auto_tune_nomov_thresholds == False)
 manual_low_confidence_threshold = 0.3
 manual_high_confidence_threshold = 0.7
@@ -65,7 +65,7 @@ threshold_sweep_steps = 61
 def device_spec_setup():
     # Set the device to GPU if available, otherwise use CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("\n\nUsing device:", device)
+    print("Using device:", device)
 
     #optimize based on hardware
     batch_size = batch_size_cpu if device.type == "cpu" else batch_size_gpu
@@ -330,8 +330,10 @@ def evaluate_A_B(model, val_loader, device, model_output_classes, class_names, d
     print("Matrix labels order:", class_names)
     print(cm_val)
 
-    # Spara alla prints i en fil
-    with open("A_B_eval_results.txt", "a") as f:
+    #Save validation results to a file for record-keeping and analysis
+    with open("Evaluation_results.txt", "a") as f:
+        f.seek(0)  # Move to the beginning of the file
+        f.truncate()  # Clear the file before writing new results
         f.write(f"-" * 50 + "\n")
         f.write("Validation (A/B) summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
@@ -348,7 +350,7 @@ def evaluate_A_B(model, val_loader, device, model_output_classes, class_names, d
 # -------------------------
 # Evaluation on nomov_val (A/B/NOMOV)
 # -------------------------
-def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eval_transform, class_names):
+def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eval_transform, class_names, auto_tune_nomov_thresholds = True, manual_low_confidence_threshold = 0.0, manual_high_confidence_threshold = 0.0):
     nomov_val_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
     nomov_val_loader = DataLoader(nomov_val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -588,48 +590,50 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
 # -------------------------
 # Save evaluation results to a file for record-keeping and analysis
 # -------------------------
-    with open("A_B_NOMOV_eval_results.txt", "a") as f:
+    with open("Evaluation_results.txt", "a") as f:
         f.write("-" * 50 + "\n")
         f.write("A/B/NOMOV evaluation summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
         f.write(f"Dataset path: {dataset_path}\n")
         f.write(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}\n")
-        f.write("A/B/NOMOV summary:\n")
+        f.write(f"Validation (A/B/NOMOV) confusion matrix:\n")
+#        f.write(f"Labels order: {[label_to_name_nomov(i) for i in [0, 1, 2]]}, (rows=true, cols=predicted)\n")
+        f.write(np.array2string(cm_nomov, separator=", ") + "\n")
         f.write(f"Total samples: {len(nomov_preds)}\n")
         f.write(f"Correct predictions: {sum(nomov_preds_np == nomov_labels_np)}\n")
         f.write(f"Accuracy: {nomov_accuracy:.4f}\n")
         f.write(f"Average confidence: {np.mean(nomov_probs):.4f}\n")
-        f.write("\nA/B/NOMOV confidence stats by predicted class:\n")
-        for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
-            class_conf = nomov_probs_np[nomov_preds_np == class_idx]
-            if class_conf.size == 0:
-                f.write(f"{class_name:15s} | n=0\n")
-            else:
-                f.write(
-                    f"{class_name:15s} | n={class_conf.size:4d} | "
-                    f"min={class_conf.min():.4f} | mean={class_conf.mean():.4f} | max={class_conf.max():.4f}\n"
-                )
-        f.write("\nA/B/NOMOV confidence stats by true class:\n")
-        for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
-            mask = (nomov_labels_np == class_idx)
-            class_conf = nomov_probs_np[mask]
-            if class_conf.size == 0:
-                f.write(f"{class_name:15s} | n=0\n")
-            else:
-                class_acc = np.mean(nomov_preds_np[mask] == class_idx)
-                f.write(
-                    f"{class_name:15s} | n={class_conf.size:4d} | mean_prob={class_conf.mean():.4f} | "
-                    f"std_prob={class_conf.std():.4f} | recall={class_acc:.4f}\n"
-                )
-        f.write("\nA/B/NOMOV adjusted metrics:\n")
-        for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
-            f.write(
-                f"{class_name:15s} | support={int(support[class_idx]):4d} | precision={precision_per_class[class_idx]:.4f} | "
-                f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}\n"
-            )
+        # f.write("\nA/B/NOMOV confidence stats by predicted class:\n")
+        # for class_idx in [0, 1, 2]:
+        #     class_name = label_to_name_nomov(class_idx)
+        #     class_conf = nomov_probs_np[nomov_preds_np == class_idx]
+        #     if class_conf.size == 0:
+        #         f.write(f"{class_name:15s} | n=0\n")
+        #     else:
+        #         f.write(
+        #             f"{class_name:15s} | n={class_conf.size:4d} | "
+        #             f"min={class_conf.min():.4f} | mean={class_conf.mean():.4f} | max={class_conf.max():.4f}\n"
+        #         )
+        # f.write("\nA/B/NOMOV confidence stats by true class:\n")
+        # for class_idx in [0, 1, 2]:
+        #     class_name = label_to_name_nomov(class_idx)
+        #     mask = (nomov_labels_np == class_idx)
+        #     class_conf = nomov_probs_np[mask]
+        #     if class_conf.size == 0:
+        #         f.write(f"{class_name:15s} | n=0\n")
+        #     else:
+        #         class_acc = np.mean(nomov_preds_np[mask] == class_idx)
+        #         f.write(
+        #             f"{class_name:15s} | n={class_conf.size:4d} | mean_prob={class_conf.mean():.4f} | "
+        #             f"std_prob={class_conf.std():.4f} | recall={class_acc:.4f}\n"
+        #         )
+        # f.write("\nA/B/NOMOV adjusted metrics:\n")
+        # for class_idx in [0, 1, 2]:
+        #     class_name = label_to_name_nomov(class_idx)
+        #     f.write(
+        #         f"{class_name:15s} | support={int(support[class_idx]):4d} | precision={precision_per_class[class_idx]:.4f} | "
+        #         f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}\n"
+        #     )
         f.write(f"\nBalanced accuracy (macro recall): {balanced_accuracy:.4f}\n")
         f.write(f"Macro F1: {macro_f1:.4f}\n")
         f.write(f"A/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})\n")
@@ -643,7 +647,7 @@ def save_model(model):
 
 
 
-def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs):
+def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold)):
     # -------------------------
     # Setup
     # -------------------------
@@ -681,6 +685,9 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs):
         num_workers=num_workers,
         eval_transform=eval_transform,
         class_names=train_dataset.classes,
+        auto_tune_nomov_thresholds=auto_tune_nomov_thresholds,
+        manual_low_confidence_threshold=manual_thresholds[0],
+        manual_high_confidence_threshold=manual_thresholds[1],
     )
 
     save_model(model=model)
@@ -693,6 +700,7 @@ if __name__ == '__main__':
     argparser.add_argument("-c", "--model_output_classes", type=int, default=3, help="Model output classes (3 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss)")
     argparser.add_argument("-d", "--dataset_path", type=str, default="dataset_all_TIs", help="dataset_all_TIs, dataset_no_TIs or dataset_2_TIs")
     argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
+    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[manual_low_confidence_threshold, manual_high_confidence_threshold], help="Manual low and high confidence thresholds for A/B/NOMOV classification (used when auto_tune_nomov_thresholds is False)")
     args = argparser.parse_args()
     
     if(args.model_output_classes == 2):
@@ -701,6 +709,12 @@ if __name__ == '__main__':
         model_output_classes = ModelOutputClasses.A_B_NOMOV
     else:
         raise ValueError(f"Invalid model_output_classes argument: {args.model_output_classes}")
+
+    if len(args.manual_thresholds) != 2:
+        raise ValueError("manual_thresholds argument must contain exactly 2 values: low and high confidence thresholds")
+    else:
+        manual_low_confidence_threshold, manual_high_confidence_threshold = args.manual_thresholds
+        auto_tune_nomov_thresholds = False  # Disable auto-tuning if manual thresholds are provided
 
     if(args.dataset_path == "dataset_all_TIs"):
         dataset_path = DatasetPaths.DATASET_ALL_TIs
@@ -711,7 +725,7 @@ if __name__ == '__main__':
     else:
         raise ValueError(f"Invalid dataset_path argument: {args.dataset_path}")
     
-    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs)
+    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs, (manual_low_confidence_threshold, manual_high_confidence_threshold))
 
 """ #Grad-CAM visualization to check which parts of the image the model is focusing on for its predictions
 from pytorch_grad_cam import GradCAM
