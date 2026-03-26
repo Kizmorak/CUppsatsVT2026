@@ -16,9 +16,15 @@ class ModelOutputClasses(Enum):
     A_B_NOMOV = "A/B/NOMOV"
 
 class DatasetPaths(Enum):
-    DATASET_ALL_TIs = "dataset_all_TIs"
-    DATASET_NO_TIs = "dataset_no_TIs"
-    DATASET_2_TIs = "dataset_2_TIs"
+    ALL_TIs = "all_TIs"
+    NO_TIs = "No_TIs"
+    NO_BB = "No_BB"
+    NO_BB_NO_RSI = "No_BB_No_RSI"
+    NO_BB_NO_OBV = "No_BB_No_OBV"
+    NO_RSI = "No_RSI"
+    NO_RSI_NO_OBV = "No_RSI_No_OBV"
+    NO_OBV = "No_OBV"
+
     def __str__(self):        
         return str(self.value)
 
@@ -28,13 +34,13 @@ class DatasetPaths(Enum):
 # Model and training parameters
 model_name = "convnextv2_atto"
 default_model_output_classes = ModelOutputClasses.A_B_NOMOV
-default_dataset_path = DatasetPaths.DATASET_ALL_TIs  # Path to your dataset folder containing 'train', 'val' and 'backtest' subfolders
+default_dataset_path = DatasetPaths.ALL_TIs  # Path to your dataset folder containing 'train', 'val' and 'backtest' subfolders
 
 # Training parameters
 default_num_epochs = 10
-expected_nomov_ratio = 0.8  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
+default_expected_nomov_ratio = 0.6  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
 #Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
-num_stages_to_unfreeze = 1
+default_num_stages_to_unfreeze = 1
 # Augmentation options
 use_random_affine = True
 
@@ -115,8 +121,6 @@ def dataset_setup(batch_size, num_workers, dataset_path):
     train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=train_transform)
     val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=eval_transform)
 
-    print(f"Dataset path '{dataset_path}':")
-
     # Balanced sampler
     targets = np.array(train_dataset.targets)
     class_counts = np.bincount(targets)
@@ -136,7 +140,7 @@ def dataset_setup(batch_size, num_workers, dataset_path):
 # -------------------------
 # Model
 # -------------------------
-def model_setup(device, model_output_classes):
+def model_setup(device, model_output_classes, num_stages_to_unfreeze):
     model = timm.create_model(
         model_name,
         pretrained=True
@@ -152,8 +156,6 @@ def model_setup(device, model_output_classes):
     model.reset_classifier(2 if model_output_classes == ModelOutputClasses.A_B else 1)
     model.to(device)
 
-    print(f"Model: {model_name}, Output class: {model_output_classes}")
-
     # Freeze all layers except the head
     for p in model.parameters():
         p.requires_grad = False
@@ -162,9 +164,17 @@ def model_setup(device, model_output_classes):
         p.requires_grad = True
 
     # Unfreeze the last stage of the model 
-    for name, p in model.named_parameters():
-        if "stages.3" in name:
-            p.requires_grad = True
+    # for name, p in model.named_parameters():
+    #     if "stages.3" in name:
+    #         p.requires_grad = True
+
+    # If you wanted to unfreeze more stages for more fine-tuning, you could do it like this:
+    stages_to_unfreeze = num_stages_to_unfreeze  # Adjust this to unfreeze more stages
+    for stage_idx in range(3, 3 - stages_to_unfreeze, -1):
+        for name, p in model.named_parameters():
+            if f"stages.{stage_idx}" in name:
+                p.requires_grad = True
+        
     return model
 
 # -------------------------
@@ -332,9 +342,6 @@ def evaluate_A_B(model, val_loader, device, model_output_classes, class_names, d
 
     #Save validation results to a file for record-keeping and analysis
     with open("Evaluation_results.txt", "a") as f:
-        f.seek(0)  # Move to the beginning of the file
-        f.truncate()  # Clear the file before writing new results
-        f.write(f"-" * 50 + "\n")
         f.write("Validation (A/B) summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
         f.write(f"Dataset path: {dataset_path}\n")
@@ -350,7 +357,7 @@ def evaluate_A_B(model, val_loader, device, model_output_classes, class_names, d
 # -------------------------
 # Evaluation on nomov_val (A/B/NOMOV)
 # -------------------------
-def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eval_transform, class_names, auto_tune_nomov_thresholds = True, manual_low_confidence_threshold = 0.0, manual_high_confidence_threshold = 0.0):
+def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eval_transform, class_names, expected_nomov_ratio=0.8, auto_tune_nomov_thresholds = True, manual_low_confidence_threshold = 0.0, manual_high_confidence_threshold = 0.0):
     nomov_val_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
     nomov_val_loader = DataLoader(nomov_val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -647,14 +654,48 @@ def save_model(model):
 
 
 
-def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold)):
+def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold)):
+    # --------------------------
+    # Print configuration summary
+    # --------------------------
+    print("-" * 50)
+    print("Configuration summary:")
+    print(f"Model output classes: {model_output_classes}")
+    print(f"Dataset path: {dataset_path}")
+    print(f"Number of epochs: {num_epochs}")
+    if auto_tune_nomov_thresholds:
+        print(f"Auto-tuning NOMOV thresholds with expected ratio: {expected_nomov_ratio:.4f}")
+    else:
+        print(f"Using manual NOMOV thresholds: {manual_thresholds}")
+        print(f"Manual thresholds (low, high): {manual_thresholds}")
+    print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
+    
+    #Save validation results to a file for record-keeping and analysis
+    with open("Evaluation_results.txt", "a") as f:
+        f.seek(0)  # Move to the beginning of the file
+        f.truncate()  # Clear the file before writing new results
+        f.write("-" * 50 + "\n")
+        f.write("New training run:\n")
+        f.write(f"Datetime: {datetime.now()}\n")
+        f.write(f"Model output classes: {model_output_classes}\n")
+        f.write(f"Dataset path: {dataset_path}\n")
+        f.write(f"Number of epochs: {num_epochs}\n")
+        f.write(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}\n")
+        if manual_thresholds != (0, 0):
+            f.write(f"Manual low confidence threshold: {manual_thresholds[0]}\n")
+            f.write(f"Manual high confidence threshold: {manual_thresholds[1]}\n")
+        else:
+            f.write("Auto-tuning of NOMOV thresholds\n")
+            f.write(f"Expected NOMOV ratio: {expected_nomov_ratio}\n")
+
+    
     # -------------------------
     # Setup
     # -------------------------
     device, batch_size, num_workers = device_spec_setup()
     _, eval_transform = transforms_setup()
     train_dataset, train_loader, val_loader = dataset_setup(batch_size=batch_size, num_workers=num_workers, dataset_path=dataset_path)
-    model = model_setup(device=device, model_output_classes=model_output_classes)
+    model = model_setup(device=device, model_output_classes=model_output_classes, num_stages_to_unfreeze=num_stages_to_unfreeze)
     optimizer = optimizer_setup(model=model)
     scheduler = scheduler_setup(optimizer=optimizer, num_epochs=num_epochs)
 
@@ -685,6 +726,7 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, man
         num_workers=num_workers,
         eval_transform=eval_transform,
         class_names=train_dataset.classes,
+        expected_nomov_ratio=expected_nomov_ratio,
         auto_tune_nomov_thresholds=auto_tune_nomov_thresholds,
         manual_low_confidence_threshold=manual_thresholds[0],
         manual_high_confidence_threshold=manual_thresholds[1],
@@ -698,9 +740,11 @@ if __name__ == '__main__':
     # -------------------------
     argparser = argparse.ArgumentParser(prog = "CNN Fine-tuning", description="Fine-tune ConvNeXt on A/B classification with A/B/NOMOV NOMOV evaluation")
     argparser.add_argument("-c", "--model_output_classes", type=int, default=3, help="Model output classes (3 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss)")
-    argparser.add_argument("-d", "--dataset_path", type=str, default="dataset_all_TIs", help="dataset_all_TIs, dataset_no_TIs or dataset_2_TIs")
+    argparser.add_argument("-d", "--dataset_path", type=str, default="all_TIs", help="se Enums")
     argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
     argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[manual_low_confidence_threshold, manual_high_confidence_threshold], help="Manual low and high confidence thresholds for A/B/NOMOV classification (used when auto_tune_nomov_thresholds is False)")
+    argparser.add_argument("-r", "--expected_nomov_ratio", type=float, default=default_expected_nomov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
+    argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
     args = argparser.parse_args()
     
     if(args.model_output_classes == 2):
@@ -716,16 +760,26 @@ if __name__ == '__main__':
         manual_low_confidence_threshold, manual_high_confidence_threshold = args.manual_thresholds
         auto_tune_nomov_thresholds = False  # Disable auto-tuning if manual thresholds are provided
 
-    if(args.dataset_path == "dataset_all_TIs"):
-        dataset_path = DatasetPaths.DATASET_ALL_TIs
-    elif(args.dataset_path == "dataset_no_TIs"):
-        dataset_path = DatasetPaths.DATASET_NO_TIs
-    elif(args.dataset_path == "dataset_2_TIs"):
-        dataset_path = DatasetPaths.DATASET_2_TIs
+    if(args.dataset_path == "all_TIs"):
+        dataset_path = DatasetPaths.ALL_TIs
+    elif(args.dataset_path == "No_TIs"):
+        dataset_path = DatasetPaths.NO_TIs
+    elif(args.dataset_path == "No_BB"):
+        dataset_path = DatasetPaths.NO_BB
+    elif(args.dataset_path == "No_BB_No_RSI"):
+        dataset_path = DatasetPaths.NO_BB_NO_RSI
+    elif(args.dataset_path == "No_BB_No_OBV"):
+        dataset_path = DatasetPaths.NO_BB_NO_OBV
+    elif(args.dataset_path == "No_RSI"):
+        dataset_path = DatasetPaths.NO_RSI
+    elif(args.dataset_path == "No_RSI_No_OBV"):
+        dataset_path = DatasetPaths.NO_RSI_NO_OBV
+    elif(args.dataset_path == "No_OBV"):
+        dataset_path = DatasetPaths.NO_OBV
     else:
         raise ValueError(f"Invalid dataset_path argument: {args.dataset_path}")
     
-    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs, (manual_low_confidence_threshold, manual_high_confidence_threshold))
+    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs, args.expected_nomov_ratio, args.num_stages_to_unfreeze, (manual_low_confidence_threshold, manual_high_confidence_threshold))
 
 """ #Grad-CAM visualization to check which parts of the image the model is focusing on for its predictions
 from pytorch_grad_cam import GradCAM
