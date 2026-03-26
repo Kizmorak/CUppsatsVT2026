@@ -7,41 +7,39 @@ import pandas as pd
 import os
 import shutil
 from matplotlib.colors import LinearSegmentedColormap
-import pytz
 
 #VARIABLES OK TO CHANGE/TEST########################################################################################
 ratesSymbol = "USDSEK"
 ratesTimeFrame = mt5.TIMEFRAME_M1
-dateEnd = datetime(2026, 3, 13) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+dateEnd = datetime(2026, 3, 20) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
 dateStart = dateEnd - timedelta(days=(360))
 trainingDaysRequested = -(80) #Only change value in parentheses
 validationDaysRequested = -(20) #Only change value in parentheses
+backtestDaysRequested = -(5) #Only change value in parentheses
 trainingFolderName = "train"
 validationFolderName = "val"
+backtestFolderName = "backtesting"
 
 
-numberOfClasses = 2 #Set to number of classes requested to be generated
+# outdated setting # numberOfClasses = 2 #Set to number of classes requested to be generated
 generateDataset = 1 #Set to 1 if you want a dataset generated
+
+#List of dataset names, use 1
+datasetName = "all_TIs"
+#datasetName = "No_TIs"
+#datasetName = "No_BB"
+#datasetName = "No_BB_No_RSI"
+#datasetName = "No_BB_No_OBV"
+#datasetName = "No_RSI"
+#datasetName = "No_RSI_No_OBV"
+#datasetName = "No_OBV"
+
 
 createCSV = 1 #Set to 1 if you want a CSV of the complete dataset
 ####################################################################################################################
 
-#CHART VARIABLES: 0 is not included. 1 is included##################################################################
-includeTIs = 1
-
-includeMA30 = 0
-includeBB = 1
-includeOBV = 1
-includeRSI = 1
-####################################################################################################################
 
 #VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
-ratesSymbol = "USDSEK"
-ratesTimeFrame = mt5.TIMEFRAME_M1
-
-timeOfDayStart = "08:30"
-timeOfDayEnd = "15:00"
-
 MAWindowSize = 30
 MAPrice = "close"
 
@@ -55,22 +53,31 @@ RSIPeriod = 14
 
 significantMovementPeriod = 10
 
+timeOfDayStart = "08:30"
+timeOfDayEnd = "15:00"
+
 windowSize = 30 #in function: GenerateDataSet
 getNoMovementEvery = 1 #in function: GenerateDataSet
 ####################################################################################################################
 
-# Non-interactive mode avoids GUI bitmap pressure when generating many images.
-plt.ioff()
+
+#CHART VARIABLES: 0 is not included. 1 is included##################################################################
+includeTIs = 1
+
+includeMA30 = 0
+includeBB = 1
+includeOBV = 1
+includeRSI = 1
+####################################################################################################################
 
 def main():
     print("This is the main function")
+
 
     print("Main variables set")
 
     print("Getting data from MT5")
     ratesData = GetDataFromMT5(ratesSymbol, ratesTimeFrame, dateStart, dateEnd)
-    print(f"Data from MT5 collected: {len(ratesData)} rows")
-    print(ratesData)
     print("MT5 data collected")
 
     print(ratesData.head())
@@ -91,25 +98,39 @@ def main():
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
     ####################################################################################################################
 
+    # Generate validation dataset
+    requestedBacktestingDays = uniqueDays[backtestDaysRequested:]
+    backtestRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedBacktestingDays)]
+
     #Generate validation dataset
-    requestedValidationDays = uniqueDays[validationDaysRequested:]
+    requestedValidationDays = uniqueDays[((backtestDaysRequested+validationDaysRequested)):backtestDaysRequested]
     validationRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedValidationDays)]
 
     # Generate training dataset
-    requestedTrainingDays = uniqueDays[((trainingDaysRequested+validationDaysRequested)):validationDaysRequested]
+    requestedTrainingDays = uniqueDays[((backtestDaysRequested+trainingDaysRequested+validationDaysRequested)):(backtestDaysRequested+validationDaysRequested)]
     trainingRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedTrainingDays)]
 
     if generateDataset == 1:
         if os.path.exists("datasetNew"):
             shutil.rmtree("datasetNew")
             print(f"Deleted existing folder: {"datasetNew"}")
-        GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClasses)
-        GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClasses)
+        GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery, 3)
+        GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, 2)
+        GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, 2)
 
     if createCSV == 1:
-        createCSVFromDataset(ratesData, "fullDataset")
-        createCSVFromDataset(trainingRatesData, "trainingDataset")
-        createCSVFromDataset(validationRatesData, "validationDataset")
+       # createCSVFromDataset(ratesData, "fullDataset")
+       # createCSVFromDataset(trainingRatesData, "trainingDataset")
+       # createCSVFromDataset(validationRatesData, "validationDataset")
+        ratesDataBacktest = ratesData[['Open', 'High', 'Low', 'Close', 'tick_volume', 'spread',
+        'real_volume', 'target', 'conflict']].copy()
+        ratesDataBacktest.loc[ratesDataBacktest['conflict'] == True, 'target'] = 0
+        ratesDataBacktest = ratesDataBacktest.drop(columns=['conflict'])
+        ratesDataBacktest.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
+        #ratesDataBacktest["time"] = datetime.timestamp(ratesDataBacktest["time"])
+
+        createCSVFromDataset(ratesDataBacktest, "backtestDataset.csv")
+
 
 #Starts MT5 and gets rates data according to configuration of input to function
 #Returns an array of the rates
@@ -160,6 +181,7 @@ def RelativeStrengthIndexCalculator(data, period=14):
     data["RSI"] = 100 - 100 / (1 + data["RS"])
     return data
 
+
 #Takes an array of rates
 #Calculates On-Balance Volume according to configuration of input to function
 #Attaches all calculated results the function needs to the array of rates (direction)
@@ -207,6 +229,9 @@ def AverageTrueRangeCalculator (data, period=14):
     data["averageTrueRange"] = data["trueRange"].rolling(window=period).mean()
     return data
 
+
+
+
 def makePlot(ratesData, saveFolderName):
     #Day-Change Guard
     if ratesData.index[0].date() != ratesData.index[-1].date():
@@ -223,7 +248,6 @@ def makePlot(ratesData, saveFolderName):
         return False
 
     #TI inclusion based on configuration
-    TIplots = []
     if includeTIs:
         plotsConfig = []
         if includeMA30 == 1:
@@ -277,9 +301,6 @@ def makePlot(ratesData, saveFolderName):
     #Save figure
     fig.savefig(file_path)
 
-    # Explicitly release figure memory to avoid "failed to allocate bitmap" errors.
-    plt.close(fig)
-
     print(f"Grafen är sparad som: {file_path}")
 
     #Show graph
@@ -290,7 +311,11 @@ def makePlot(ratesData, saveFolderName):
 
 def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery = 1, numberOfClasses = 3):
     # Create variables used by function
-    saveFolderName=os.path.join("datasetNew", saveFolderName)
+   # dateEnd = datetime(2026, 3, 20) + timedelta(days=1)
+    #dataset_No_TIs_T80V20B5_20260320_2classTV_3classB
+    dateStr = (dateEnd - timedelta(days=1)).strftime('%Y%m%d')
+    folderPrefix = f"dataset_{datasetName}_T{-trainingDaysRequested}V{-validationDaysRequested}B{-backtestDaysRequested}_{dateStr}_2classTV_3classB"
+    saveFolderName = os.path.join(folderPrefix, saveFolderName)
     total_rows = len(ratesData)
     noMovementCounter = 0
 
@@ -306,6 +331,8 @@ def GenerateDataSet(ratesData, saveFolderName, window = 30, getNoMovementEvery =
     # Pre-create all paths if not available
     for folder in folders:
         os.makedirs(os.path.join(saveFolderName, folder), exist_ok=True)
+
+
 
     #We start the loop at "window" so the first slice is valid
     for i in range(window, total_rows + 1):
