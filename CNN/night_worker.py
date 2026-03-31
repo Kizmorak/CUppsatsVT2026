@@ -45,15 +45,43 @@ def add_eval_results_to_file():
 #               num_stages_to_unfreeze  (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc. - used for fine-tuning)
 if __name__ == '__main__':
 
-    for i in range(0):
-        make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.ALL_TIs, num_epochs=1, manual_thresholds=(0.4, 0.6))
-
-    for i in range(0):
-        make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.ALL_TIs, num_epochs=3)
+    # for i in range(2):
+    #     make_model(
+    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+    #         num_epochs=7)
     
-    for i in range(1):
-        make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.ALL_TIs, num_epochs=1, num_stages_to_unfreeze=2)
-    
-    for i in range(0):
-        make_model(model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, dataset_path=model_maker.DatasetPaths.ALL_TIs, num_epochs=1, nomov_ratio=0.5)
+    # for i in range(2):
+    #     make_model(
+    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+    #         dataset_path=model_maker.DatasetPaths.NO_TIs, 
+    #         num_epochs=7
+    #         )
 
+    # for i in range(2):
+    #     make_model(
+    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+    #         num_epochs=8, 
+    #         manual_thresholds=(0.4, 0.6))      
+
+    # for i in range(2):
+    #     make_model(
+    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+    #         dataset_path=model_maker.DatasetPaths.NO_TIs, 
+    #         num_epochs=8, 
+    #         manual_thresholds=(0.4, 0.6))   
+    
+    # for i in range(2):
+    #     make_model(
+    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+    #         num_epochs=10, 
+    #         nomov_ratio=0.5)
+
+    for i in range(2):
+        make_model(
+            model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+            dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+            num_epochs=10, 
+            nomov_ratio=0.9)

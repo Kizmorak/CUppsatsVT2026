@@ -9,7 +9,9 @@ import numpy as np
 import torch.nn.functional as F
 import argparse
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
+import csv
+import os
 
 class ModelOutputClasses(Enum):
     A_B = "A/B"
@@ -32,13 +34,13 @@ class DatasetPaths(Enum):
 # Variables and hyperparameters
 # -------------------------
 # Model and training parameters
-model_name = "convnextv2_atto"
+selected_model_name = "convnextv2_atto"  # You can experiment with models from timm like "convnextv2_atto", "resnet50", "efficientnet_b0", etc.
 default_model_output_classes = ModelOutputClasses.A_B_NOMOV
 default_dataset_path = DatasetPaths.ALL_TIs  # Path to your dataset folder containing 'train', 'val' and 'backtest' subfolders
 
 # Training parameters
 default_num_epochs = 10
-default_expected_nomov_ratio = 0.6  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
+default_expected_nomov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
 #Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
 default_num_stages_to_unfreeze = 1
 # Augmentation options
@@ -53,8 +55,8 @@ batch_size_gpu = 16
 # Auto-tuning options for NOMOV thresholding
 auto_tune_nomov_thresholds = True
 # Manual fallback thresholds (used when auto_tune_nomov_thresholds == False)
-manual_low_confidence_threshold = 0.3
-manual_high_confidence_threshold = 0.7
+manual_low_confidence_threshold = 0.0
+manual_high_confidence_threshold = 0.0
 
 
 # Threshold tuning strategy for A/B/NOMOV mode.
@@ -140,9 +142,9 @@ def dataset_setup(batch_size, num_workers, dataset_path):
 # -------------------------
 # Model
 # -------------------------
-def model_setup(device, model_output_classes, num_stages_to_unfreeze):
+def model_setup(device, model_output_classes, num_stages_to_unfreeze, selected_model_name):
     model = timm.create_model(
-        model_name,
+        selected_model_name,
         pretrained=True
     )
 
@@ -160,19 +162,31 @@ def model_setup(device, model_output_classes, num_stages_to_unfreeze):
     for p in model.parameters():
         p.requires_grad = False
 
-    for p in model.head.parameters():
-        p.requires_grad = True
+    # Unfreeze classifier/head depending on architecture.
+    if hasattr(model, "head"):
+        for p in model.head.parameters():
+            p.requires_grad = True
+    elif hasattr(model, "fc"):
+        for p in model.fc.parameters():
+            p.requires_grad = True
+    elif hasattr(model, "classifier") and isinstance(model.classifier, nn.Module):
+        for p in model.classifier.parameters():
+            p.requires_grad = True
 
-    # Unfreeze the last stage of the model 
-    # for name, p in model.named_parameters():
-    #     if "stages.3" in name:
-    #         p.requires_grad = True
+    # Unfreeze the last backbone stages depending on model family.
+    stage_prefixes = []
+    if hasattr(model, "stages"):
+        max_stages = len(model.stages)
+        clamped = max(0, min(num_stages_to_unfreeze, max_stages))
+        stage_prefixes = [f"stages.{idx}" for idx in range(max_stages - 1, max_stages - 1 - clamped, -1)]
+    elif all(hasattr(model, layer_name) for layer_name in ["layer1", "layer2", "layer3", "layer4"]):
+        resnet_layers = ["layer4", "layer3", "layer2", "layer1"]
+        clamped = max(0, min(num_stages_to_unfreeze, len(resnet_layers)))
+        stage_prefixes = resnet_layers[:clamped]
 
-    # If you wanted to unfreeze more stages for more fine-tuning, you could do it like this:
-    stages_to_unfreeze = num_stages_to_unfreeze  # Adjust this to unfreeze more stages
-    for stage_idx in range(3, 3 - stages_to_unfreeze, -1):
+    if stage_prefixes:
         for name, p in model.named_parameters():
-            if f"stages.{stage_idx}" in name:
+            if any(name.startswith(prefix) for prefix in stage_prefixes):
                 p.requires_grad = True
         
     return model
@@ -184,10 +198,10 @@ def model_setup(device, model_output_classes, num_stages_to_unfreeze):
 def optimizer_setup(model):
     lr = 1e-4
     weight_decay = 0.05
-    optimizer = torch.optim.AdamW([
-        {"params": model.head.parameters(), "lr": lr},
-        {"params": model.stages[3].parameters(), "lr": lr * 0.1},
-    ], weight_decay=weight_decay)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    if not trainable_params:
+        raise ValueError("No trainable parameters found. Check fine-tuning stage configuration.")
+    optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
     return optimizer
 
 # -------------------------
@@ -365,8 +379,10 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
     nomov_probs = []
     nomov_labels = []
 
+    # Helper functions for mapping between label indices, class names and A/B/NOMOV labels.
+    # Assumes that the nomov_val dataset classes are a subset of {"downMovement", "upMovement", "noMovement"} but in any order, and maps them to A/B/NOMOV labels [0:down/A, 1:up/B, 2:NOMOV].
     def label_to_name_nomov(label_idx):
-        if label_idx == 2:
+        if label_idx == len(class_names):
             return nomov_label_name
         if 0 <= label_idx < len(class_names):
             return class_names[label_idx]
@@ -414,21 +430,16 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
     
     print("\nA/B/NOMOV summary:")
     print(f"Total samples: {len(nomov_preds)}")
-    
-    nomov_labels_np = np.array(nomov_labels)
-    nomov_preds_np = np.array(nomov_preds)
-    nomov_probs_np = np.array(nomov_probs)
-    nomov_accuracy = sum(nomov_preds_np == nomov_labels_np) / len(nomov_preds)
 
     #print a summary of the A/B/NOMOV evaluation before thresholding to understand the raw model outputs
     print(f"\nA/B/NOMOV evaluation (before thresholding):")
     print(f"High confidence samples: {sum(1 for p in nomov_probs if p >= high_confidence_threshold)}")
     print(f"Low confidence samples: {sum(1 for p in nomov_probs if p <= low_confidence_threshold)}")
     print(f"Uncertain samples: {sum(1 for p in nomov_probs if low_confidence_threshold < p < high_confidence_threshold)}")
-    print(f"\nCorrect predictions: {sum(nomov_preds_np == nomov_labels_np)}")
-    print(f"Accuracy: {nomov_accuracy:.4f}")
-    print(f"Average confidence: {np.mean(nomov_probs):.4f}")
 
+    # -------------------------
+    # Threshold auto-tuning for A/B/NOMOV classification
+    # -------------------------
 
     # Compute metrics for given thresholds (used for auto-tuning)
     def compute_metrics_for_thresholds(low, high):
@@ -501,18 +512,28 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
             print(
                 f"\nThreshold auto-tune (sweep): objective={threshold_sweep_objective}, "
                 f"best_score={best_score:.4f}, best_balanced_acc={best_balanced:.4f}"
+                f"best_low={low_confidence_threshold:.4f}, best_high={high_confidence_threshold:.4f}"
             )
         else:
             raise ValueError(
                 f"Invalid threshold_tuning_strategy: {threshold_tuning_strategy}. "
                 f"Use 'prior_quantile' or 'sweep'."
             )
-
+    # -------------------------
+    # Final evaluation with selected thresholds
+    # -------------------------
+    # Compute predictions after threshold selection so auto-tuned thresholds are actually applied.
+    nomov_labels_np = np.array(nomov_labels)
+    nomov_preds_np = np.array(nomov_preds)
+    nomov_probs_np = np.array(nomov_probs)
+    nomov_accuracy = sum(nomov_preds_np == nomov_labels_np) / len(nomov_preds)
+    print(f"\nCorrect predictions: {sum(nomov_preds_np == nomov_labels_np)}")
 
     cm_nomov = confusion_matrix(nomov_labels, nomov_preds, labels=[0, 1, 2])
 
     print(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}")
-   
+    print(f"Accuracy: {nomov_accuracy:.4f}")
+    print(f"Average confidence: {np.mean(nomov_probs):.4f}")
     print("\nOpen-set (A/B/NOMOV) confusion matrix:")
     print("Matrix labels order:", [label_to_name_nomov(i) for i in [0, 1, 2]])
     print(cm_nomov)
@@ -573,6 +594,7 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
     deploy_prior = np.clip(deploy_prior, 0.0, 1.0)
     deploy_prior = deploy_prior / deploy_prior.sum()
 
+    # Compute adjusted accuracies that reflect expected performance under different class distributions (e.g. deployment scenario vs equal class distribution)
     adjusted_acc_equal = float(np.sum(recall_per_class * equal_prior))
     adjusted_acc_deploy = float(np.sum(recall_per_class * deploy_prior))
 
@@ -585,8 +607,8 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
             f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}"
         )
     
-    # print(f"Adjusted accuracy (equal prior A/B/NOMOV): {adjusted_acc_equal:.4f}")
-    # print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
+    print(f"Adjusted accuracy (equal prior A/B/NOMOV): {adjusted_acc_equal:.4f}")
+    print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
 
 # Print accuracy for only the A/B subset of the nomov_val set to understand how well the model distinguishes A vs B without considering NOMOV.
     ab_mask = nomov_labels_np < 2
@@ -646,28 +668,64 @@ def evaluate_A_B_NOMOV(model, device, dataset_path, batch_size, num_workers, eva
         f.write(f"A/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})\n")
         f.write(f"-" * 50 + "\n")
 
-# -------------------------
-# Save model
-# -------------------------
-def save_model(model):
-    torch.save(model.state_dict(), "convnext_atto_finetuned.pth")
+    
+    # -------------------------
+    # Save predictions CSV file
+    # -------------------------
+    def extract_datetime_from_path(path):
+        # Filename in YYYY-MM-DD_HHMM.png format
+        filename = os.path.basename(path)
+        stem = os.path.splitext(filename)[0]
+        dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
+        plus = dt + timedelta(minutes=31)
+        formatted = plus.strftime("%Y-%m-%d %H:%M:00")
+        return formatted
 
+    with open("backtesting_predictions.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["time", "target"])
+        for (path, _), pred in zip(nomov_val_dataset.samples, nomov_preds):
+            if pred == 0:
+                target = 1
+            elif pred == 1:
+                target = 0
+            else:
+                continue  # Skip NOMOV predictions: they are not actionable signals.
+            t = extract_datetime_from_path(path)
+            writer.writerow([t, target])
 
+    print("\nA/B/NOMOV evaluation completed and results saved to Evaluation_results.txt and backtesting_predictions.csv")
 
-def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold)):
+def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold), auto_tune_nomov_thresholds=auto_tune_nomov_thresholds, selected_model_name=selected_model_name):
+    if expected_nomov_ratio < 0.0 or expected_nomov_ratio > 1.0:
+        raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {expected_nomov_ratio}")
+    elif expected_nomov_ratio > 0.0 and expected_nomov_ratio < 1.0: 
+         auto_tune_nomov_thresholds = True
+         threshold_tuning_strategy == "prior_quantile"     
+
+    if manual_thresholds != (0, 0):
+        if manual_thresholds[0] < 0.0 or manual_thresholds[0] > 1.0 or manual_thresholds[1] < 0.0 or manual_thresholds[1] > 1.0:
+            raise ValueError(f"Manual thresholds must be between 0 and 1. Got {manual_thresholds}")
+        elif manual_thresholds[0] >= manual_thresholds[1]:
+            raise ValueError(f"Manual low confidence threshold must be less than high confidence threshold. Got {manual_thresholds}")
+        else:
+            auto_tune_nomov_thresholds = False
+            print(f"Using manual thresholds: low={manual_thresholds[0]:.4f}, high={manual_thresholds[1]:.4f}")
     # --------------------------
     # Print configuration summary
     # --------------------------
     print("-" * 50)
     print("Configuration summary:")
+    print(f"Model name: {selected_model_name}")
     print(f"Model output classes: {model_output_classes}")
     print(f"Dataset path: {dataset_path}")
     print(f"Number of epochs: {num_epochs}")
     if auto_tune_nomov_thresholds:
-        print(f"Auto-tuning NOMOV thresholds with expected ratio: {expected_nomov_ratio:.4f}")
+        print(f"Auto-tuning NOMOV thresholds")
+        if expected_nomov_ratio > 0.0 and expected_nomov_ratio < 1.0:
+            print(f"Expected NOMOV ratio for auto-tuning: {expected_nomov_ratio:.4f}")
     else:
         print(f"Using manual NOMOV thresholds: {manual_thresholds}")
-        print(f"Manual thresholds (low, high): {manual_thresholds}")
     print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
     
     #Save validation results to a file for record-keeping and analysis
@@ -677,6 +735,7 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, exp
         f.write("-" * 50 + "\n")
         f.write("New training run:\n")
         f.write(f"Datetime: {datetime.now()}\n")
+        f.write(f"Model name: {selected_model_name}\n")
         f.write(f"Model output classes: {model_output_classes}\n")
         f.write(f"Dataset path: {dataset_path}\n")
         f.write(f"Number of epochs: {num_epochs}\n")
@@ -695,7 +754,7 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, exp
     device, batch_size, num_workers = device_spec_setup()
     _, eval_transform = transforms_setup()
     train_dataset, train_loader, val_loader = dataset_setup(batch_size=batch_size, num_workers=num_workers, dataset_path=dataset_path)
-    model = model_setup(device=device, model_output_classes=model_output_classes, num_stages_to_unfreeze=num_stages_to_unfreeze)
+    model = model_setup(device=device, model_output_classes=model_output_classes, num_stages_to_unfreeze=num_stages_to_unfreeze, selected_model_name=selected_model_name)
     optimizer = optimizer_setup(model=model)
     scheduler = scheduler_setup(optimizer=optimizer, num_epochs=num_epochs)
 
@@ -732,7 +791,13 @@ def setup_train_and_evaluate(model_output_classes, dataset_path, num_epochs, exp
         manual_high_confidence_threshold=manual_thresholds[1],
     )
 
-    save_model(model=model)
+    # -------------------------
+    # Save the trained model
+    # -------------------------
+    torch.save(model.state_dict(), "convnext_atto_finetuned.pth")
+
+
+
 
 if __name__ == '__main__':
     # -------------------------
@@ -742,7 +807,8 @@ if __name__ == '__main__':
     argparser.add_argument("-c", "--model_output_classes", type=int, default=3, help="Model output classes (3 for binary classification with probability output, 2 for standard binary classification with CrossEntropyLoss)")
     argparser.add_argument("-d", "--dataset_path", type=str, default="all_TIs", help="se Enums")
     argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
-    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[manual_low_confidence_threshold, manual_high_confidence_threshold], help="Manual low and high confidence thresholds for A/B/NOMOV classification (used when auto_tune_nomov_thresholds is False)")
+    argparser.add_argument("-m", "--selected_model_name", type=str, default=selected_model_name, help="timm model name, e.g. convnextv2_atto or resnet50")
+    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for A/B/NOMOV classification (used when auto_tune_nomov_thresholds is False)")
     argparser.add_argument("-r", "--expected_nomov_ratio", type=float, default=default_expected_nomov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
     argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
     args = argparser.parse_args()
@@ -756,10 +822,18 @@ if __name__ == '__main__':
 
     if len(args.manual_thresholds) != 2:
         raise ValueError("manual_thresholds argument must contain exactly 2 values: low and high confidence thresholds")
+    elif args.manual_thresholds == [0, 0]:
+        pass
     else:
         manual_low_confidence_threshold, manual_high_confidence_threshold = args.manual_thresholds
         auto_tune_nomov_thresholds = False  # Disable auto-tuning if manual thresholds are provided
 
+    if  args.expected_nomov_ratio > 0.0 and args.expected_nomov_ratio < 1.0:
+        auto_tune_nomov_thresholds = True  # Enable auto-tuning if expected_nomov_ratio is set to a valid value between 0 and 1
+        threshold_tuning_strategy = "prior_quantile"  # Use quantiles based on expected_nomov_ratio to set thresholds
+    elif args.expected_nomov_ratio < 0.0 or args.expected_nomov_ratio > 1.0:
+        raise ValueError("expected_nomov_ratio must be between 0.0 and 1.0")
+    
     if(args.dataset_path == "all_TIs"):
         dataset_path = DatasetPaths.ALL_TIs
     elif(args.dataset_path == "No_TIs"):
@@ -779,7 +853,7 @@ if __name__ == '__main__':
     else:
         raise ValueError(f"Invalid dataset_path argument: {args.dataset_path}")
     
-    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs, args.expected_nomov_ratio, args.num_stages_to_unfreeze, (manual_low_confidence_threshold, manual_high_confidence_threshold))
+    setup_train_and_evaluate(model_output_classes, dataset_path, args.num_epochs, args.expected_nomov_ratio, args.num_stages_to_unfreeze, (manual_low_confidence_threshold, manual_high_confidence_threshold), auto_tune_nomov_thresholds, args.selected_model_name)
 
 """ #Grad-CAM visualization to check which parts of the image the model is focusing on for its predictions
 from pytorch_grad_cam import GradCAM
