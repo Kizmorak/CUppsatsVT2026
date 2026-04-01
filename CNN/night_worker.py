@@ -1,14 +1,14 @@
-import model_maker
+import model_maker_clean as model_maker
 from datetime import datetime
 
 
-def make_model(model_output_classes, dataset_path, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze=(1), manual_thresholds=(0, 0)):
+def make_model(dataset_path, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze=(1), manual_thresholds=(0, 0)):
 # Make models
     try:
-        model_maker.setup_train_and_evaluate(model_output_classes=model_output_classes, dataset_path=dataset_path, num_epochs=num_epochs, expected_nomov_ratio=nomov_ratio, num_stages_to_unfreeze=num_stages_to_unfreeze, manual_thresholds=manual_thresholds)
+        model_maker.setup_train_and_evaluate(dataset_path=dataset_path, num_epochs=num_epochs, expected_nomov_ratio=nomov_ratio, num_stages_to_unfreeze=num_stages_to_unfreeze, manual_thresholds=manual_thresholds)
 
     except Exception as e:
-        print(f"Error occurred while training and evaluating model: {model_output_classes}, {dataset_path}, {num_epochs}: {e}")
+        print(f"Error occurred while training and evaluating model: {dataset_path}, {num_epochs}: {e}")
 
 # Add eval results to file
     add_eval_results_to_file()
@@ -45,43 +45,37 @@ def add_eval_results_to_file():
 #               num_stages_to_unfreeze  (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc. - used for fine-tuning)
 if __name__ == '__main__':
 
-    # for i in range(2):
-    #     make_model(
-    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
-    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
-    #         num_epochs=7)
+    for i in range(2):
+        make_model( 
+            dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+            num_epochs=6)
     
-    # for i in range(2):
-    #     make_model(
-    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
-    #         dataset_path=model_maker.DatasetPaths.NO_TIs, 
-    #         num_epochs=7
-    #         )
-
-    # for i in range(2):
-    #     make_model(
-    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
-    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
-    #         num_epochs=8, 
-    #         manual_thresholds=(0.4, 0.6))      
-
-    # for i in range(2):
-    #     make_model(
-    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
-    #         dataset_path=model_maker.DatasetPaths.NO_TIs, 
-    #         num_epochs=8, 
-    #         manual_thresholds=(0.4, 0.6))   
-    
-    # for i in range(2):
-    #     make_model(
-    #         model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
-    #         dataset_path=model_maker.DatasetPaths.ALL_TIs, 
-    #         num_epochs=10, 
-    #         nomov_ratio=0.5)
+    for i in range(2):
+        make_model(
+            dataset_path=model_maker.DatasetPaths.NO_TIs, 
+            num_epochs=6
+            )
 
     for i in range(2):
         make_model(
-            model_output_classes=model_maker.ModelOutputClasses.A_B_NOMOV, 
+            dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+            num_epochs=8, 
+            manual_thresholds=(0.3, 0.6))      
+
+    for i in range(2):
+        make_model(
+            dataset_path=model_maker.DatasetPaths.NO_TIs, 
+            num_epochs=8, 
+            manual_thresholds=(0.3, 0.6))   
+    
+    for i in range(2):
+        make_model(
+            dataset_path=model_maker.DatasetPaths.ALL_TIs, 
+            num_epochs=10, 
+            nomov_ratio=0.5)
+
+    for i in range(2):
+        make_model(
             dataset_path=model_maker.DatasetPaths.ALL_TIs, 
             num_epochs=10, 
             nomov_ratio=0.9)
