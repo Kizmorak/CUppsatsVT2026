@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.datasets import ImageFolder
 from sklearn.metrics import confusion_matrix, f1_score, balanced_accuracy_score
 import numpy as np
-import torch.nn.functional as F
 import argparse
 from enum import Enum
 from datetime import datetime, timedelta
@@ -24,19 +23,20 @@ class DatasetPaths(Enum):
     NO_RSI_NO_OBV = "No_RSI_No_OBV"
     NO_OBV = "No_OBV"
 
-    def __str__(self):        
-        return str(self.value)
+    def __str__(self):
+        return str("datasets/" + self.value)
+
 
 # -------------------------
 # Variables and hyperparameters
 # -------------------------
 # Model and training parameters
-default_dataset_path = DatasetPaths.ALL_TIs  # Path to your dataset folder containing 'train', 'val' and 'backtest' subfolders
+default_dataset_path = DatasetPaths.ALL_TIs  # Contains "train", "val", "threshold_estimation", and "backtesting".
 
 # Training parameters
 default_num_epochs = 10
-default_expected_nomov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)
-#Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
+default_expected_nomov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning)
+# Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, etc.)
 default_num_stages_to_unfreeze = 1
 # Augmentation options
 use_random_affine = True
@@ -64,6 +64,7 @@ threshold_sweep_objective = "macro_f1"
 # Number of grid points per axis when sweeping [min_prob, max_prob]. Larger = slower but finer search.
 threshold_sweep_steps = 61
 
+
 # -------------------------
 # Device
 # -------------------------
@@ -78,6 +79,7 @@ def device_spec_setup():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
     return device, batch_size, num_workers
+
 
 # -------------------------
 # Transforms
@@ -111,6 +113,7 @@ def transforms_setup():
     ])
     return train_transform, eval_transform
 
+
 # -------------------------
 # Dataset
 # -------------------------
@@ -119,8 +122,8 @@ def dataset_setup(batch_size, num_workers, dataset_path):
     
     train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=train_transform)
     val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=eval_transform)
-    backtest_2_class_dataset = ImageFolder(root=f"{dataset_path}/backtestingAB", transform=eval_transform)
-    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
+    backtest_2_class_dataset = ImageFolder(root=f"{dataset_path}/threshold_estimationAB", transform=eval_transform)
+    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/threshold_estimation", transform=eval_transform)
 
     # Balanced sampler
     targets = np.array(train_dataset.targets)
@@ -136,9 +139,12 @@ def dataset_setup(batch_size, num_workers, dataset_path):
     print("Train class counts:", {train_dataset.classes[i]: int(c) for i, c in enumerate(class_counts)})
     train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    backtest_2_class_loader = DataLoader(backtest_2_class_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    backtest_3_class_loader = DataLoader(backtest_3_class_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    backtest_2_class_loader = DataLoader(
+        backtest_2_class_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    backtest_3_class_loader = DataLoader(
+        backtest_3_class_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     return train_dataset, train_loader, val_loader, backtest_2_class_loader, backtest_3_class_dataset, backtest_3_class_loader
+
 
 # -------------------------
 # Model
@@ -155,7 +161,6 @@ def model_setup(device, num_stages_to_unfreeze):
         model.norm_pre = nn.Identity()
     # says copilot to fix a bug...
 
-
     model.reset_classifier(1)
     model.to(device)
 
@@ -166,19 +171,22 @@ def model_setup(device, num_stages_to_unfreeze):
     # Unfreeze head
     for p in model.head.parameters():
         p.requires_grad = True
-    
+
     # Unfreeze the last backbone stages depending on model family.
     stage_prefixes = []
     max_stages = len(model.stages)
     clamped = max(0, min(num_stages_to_unfreeze, max_stages))
-    stage_prefixes = [f"stages.{idx}" for idx in range(max_stages - 1, max_stages - 1 - clamped, -1)]
+    stage_prefixes = [f"stages.{idx}" for idx in range(
+        max_stages - 1, max_stages - 1 - clamped, -1)]
 
     if stage_prefixes:
         for name, p in model.named_parameters():
-            if any(name.startswith(prefix) for prefix in stage_prefixes):
+            if any(
+                name.startswith(prefix)
+                    for prefix in stage_prefixes):
                 p.requires_grad = True
-        
     return model
+
 
 # -------------------------
 # Loss + optimizer
@@ -218,6 +226,7 @@ def scheduler_setup(optimizer, num_epochs):
         eta_min=1e-6
     )
     return scheduler
+
 
 # -------------------------
 # Training
@@ -272,10 +281,11 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, num_epo
 
         scheduler.step()
 
+
 # -------------------------
 # Evaluation on val (A/B)
 # -------------------------
-def backtest_2_class(model, backtest_2_class_loader, device, class_names, dataset_path):
+def backtest_2_class(model, backtest_2_class_loader, device, dataset_path):
     backtest_2_class_preds = []
     backtest_2_class_labels = []
     backtest_2_class_confidences = []
@@ -286,7 +296,7 @@ def backtest_2_class(model, backtest_2_class_loader, device, class_names, datase
             images = images.to(device)
             labels = labels.to(device)
             outputs = model(images)
-            
+
             probs = torch.sigmoid(outputs).squeeze(1)
             preds = (probs > 0.5).long()
             confidences = torch.where(preds == 1, probs, 1 - probs)
@@ -294,7 +304,6 @@ def backtest_2_class(model, backtest_2_class_loader, device, class_names, datase
             backtest_2_class_preds.extend(preds.cpu().numpy())
             backtest_2_class_labels.extend(labels.cpu().numpy())
             backtest_2_class_confidences.extend(confidences.cpu().numpy())
-
 
     print("\nValidation (A/B) summary:")
     print(f"Total samples: {len(backtest_2_class_preds)}")
@@ -306,10 +315,9 @@ def backtest_2_class(model, backtest_2_class_loader, device, class_names, datase
 
     cm_val = confusion_matrix(backtest_2_class_labels, backtest_2_class_preds)
     print("\nValidation (A/B) confusion matrix:")
-    print("Matrix labels order:", class_names)
     print(cm_val)
 
-    #Save validation results to a file for record-keeping and analysis
+    # Save validation results to a file for record-keeping and analysis
     with open("Evaluation_results.txt", "a") as f:
         f.write("Validation (A/B) summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
@@ -323,24 +331,26 @@ def backtest_2_class(model, backtest_2_class_loader, device, class_names, datase
         f.write(f"Balanced Accuracy: {balanced_accuracy_score(backtest_2_class_labels, backtest_2_class_preds):.4f}\n")
         f.write("-" * 50 + "\n")
 
+
 # -------------------------
 # Evaluation on nomov_val (3 class)
 # -------------------------
-def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_transform, class_names, expected_nomov_ratio = 0.0, auto_tune_nomov_thresholds = True, manual_low_confidence_threshold = 0.0, manual_high_confidence_threshold = 0.0):
-    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
-    
-    nomov_label_name = "NOMOV"
+def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_transform, expected_nomov_ratio=0.0, auto_tune_nomov_thresholds=True, manual_low_confidence_threshold=0.0, manual_high_confidence_threshold=0.0):
+    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/threshold_estimation", transform=eval_transform)
+
     nomov_probs = []
     nomov_labels = []
 
     # Helper functions for mapping between label indices, class names and 3 class labels.
     # Assumes that the nomov_val dataset classes are a subset of {"downMovement", "upMovement", "noMovement"} but in any order, and maps them to 3 class labels [0:down/A, 1:up/B, 2:NOMOV].
     def label_to_name_nomov(label_idx):
-        if label_idx == len(class_names):
-            return nomov_label_name
-        if 0 <= label_idx < len(class_names):
-            return class_names[label_idx]
-        return f"UNKNOWN_{label_idx}"
+        if label_idx == 0:
+            return "downMovement"
+        if label_idx == 1:
+            return "upMovement"
+        if label_idx == 2:
+            return "noMovement"
+        return None
 
     def class_name_to_open_set_label(name):
         if name == "noMovement":
@@ -350,7 +360,6 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
         if name == "downMovement":
             return 0
         return None
-
 
     # Map nomov_val folder class indices to 3 class label ids [0:down/A, 1:up/B, 2:NOMOV].
     nomov_val_to_open_label = {}
@@ -373,20 +382,20 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
 
     high_confidence_threshold = manual_high_confidence_threshold
     low_confidence_threshold = manual_low_confidence_threshold
-    
+
     def predict_open_set(prob, low, high):
         if prob <= low:
             return 0
         if prob >= high:
             return 1
         return 2
-    
+
     print("\n3 class summary:")
     print(f"Total samples: {len(nomov_probs)}")
 
-    #print a summary of the 3 class evaluation before thresholding to understand the raw model outputs
-    print(f"\n3 class evaluation (before thresholding):")
-   
+    # Print a summary of the 3 class evaluation before thresholding to understand the raw model outputs
+    print("\n3 class evaluation (before thresholding):")
+
     # -------------------------
     # Threshold auto-tuning for 3 class classification
     # -------------------------
@@ -469,8 +478,7 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
                 f"Invalid threshold_tuning_strategy: {threshold_tuning_strategy}. "
                 f"Use 'prior_quantile' or 'sweep'."
             )
-    
-    
+
     # -------------------------
     # Final evaluation with selected thresholds
     # -------------------------
@@ -494,7 +502,6 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
     print("Matrix labels order:", [label_to_name_nomov(i) for i in [0, 1, 2]])
     print(cm_nomov)
 
-    
     print("\n3 class confidence stats by predicted class:")
     for class_idx in [0, 1, 2]:
         class_name = label_to_name_nomov(class_idx)
@@ -562,11 +569,11 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
             f"precision={precision_per_class[class_idx]:.4f} | "
             f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}"
         )
-    
+
     print(f"Adjusted accuracy (equal prior 3 class): {adjusted_acc_equal:.4f}")
     print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
 
-# Print accuracy for only the A/B subset of the nomov_val set to understand how well the model distinguishes A vs B without considering NOMOV.
+    # Print accuracy for only the A/B subset of the nomov_val set to understand how well the model distinguishes A vs B without considering NOMOV.
     ab_mask = nomov_labels_np < 2
     if np.sum(ab_mask) > 0:
         ab_accuracy = np.mean(nomov_preds_np[ab_mask] == nomov_labels_np[ab_mask])
@@ -625,7 +632,8 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
         f.write(f"-" * 50 + "\n")
 
         return low_confidence_threshold, high_confidence_threshold, nomov_preds
-    
+
+
 # -------------------------
 # Save predictions CSV file method (for backtesting)
 # -------------------------
@@ -652,6 +660,7 @@ def save_csv_predictions(preds, dataset):
 
     print("\n3 class evaluation completed and results saved to Evaluation_results.txt and backtesting_predictions.csv")
 
+
 def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold), auto_tune_nomov_thresholds=auto_tune_nomov_thresholds, backbone_lr_scale=backbone_lr_scale):
     # --------------------------
     # Print configuration summary
@@ -669,8 +678,8 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
     else:
         print(f"Using manual NOMOV thresholds: {manual_thresholds}")
     print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
-    
-    #Save validation results to a file for record-keeping and analysis
+
+    # Save validation results to a file for record-keeping and analysis
     with open("Evaluation_results.txt", "a") as f:
         f.seek(0)  # Move to the beginning of the file
         f.truncate()  # Clear the file before writing new results
@@ -689,7 +698,6 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
             f.write("Auto-tuning of NOMOV thresholds\n")
             f.write(f"Expected NOMOV ratio: {expected_nomov_ratio}\n")
 
-    
     # -------------------------
     # Setup
     # -------------------------
@@ -704,24 +712,22 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
     # Training
     # -------------------------
     train(
-        model=model, 
-        train_loader=train_loader, 
-        val_loader=val_loader, 
-        optimizer=optimizer, 
-        scheduler=scheduler, 
-        device=device, 
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        device=device,
         num_epochs=num_epochs
     )
-    
-    
+
     # -------------------------
     # Evaluation
     # -------------------------
     backtest_2_class(
-        model=model, 
-        backtest_2_class_loader=backtest_2_class_loader, 
-        device=device, 
-        class_names=train_dataset.classes, 
+        model=model,
+        backtest_2_class_loader=backtest_2_class_loader,
+        device=device,
         dataset_path=dataset_path)
 
     low, high, nomov_preds = backtest_3_class(
@@ -730,14 +736,11 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
         dataset_path=dataset_path,
         backtest_3_class_loader=backtest_3_class_loader,
         eval_transform=eval_transform,
-        class_names=train_dataset.classes,
         expected_nomov_ratio=expected_nomov_ratio,
         auto_tune_nomov_thresholds=auto_tune_nomov_thresholds,
         manual_low_confidence_threshold=manual_thresholds[0],
         manual_high_confidence_threshold=manual_thresholds[1],
     )
-
-
 
     save_csv_predictions(preds=nomov_preds, dataset=backtest_3_class_dataset)
 
@@ -745,8 +748,6 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
     # Save the trained model
     # -------------------------
     torch.save(model.state_dict(), f"{dataset_path}.pth")
-
-
 
 
 if __name__ == '__main__':
@@ -761,8 +762,7 @@ if __name__ == '__main__':
     argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
     argparser.add_argument("--backbone_lr_scale", type=float, default=backbone_lr_scale, help="Scale factor for backbone LR relative to base LR (e.g. 0.1)")
     args = argparser.parse_args()
-    
-     
+
     # -------------------------
     # Validate configuration
     # -------------------------
@@ -779,8 +779,7 @@ if __name__ == '__main__':
         else:
             auto_tune_nomov_thresholds = False
             print(f"Using manual thresholds: low={args.manual_thresholds[0]:.4f}, high={args.manual_thresholds[1]:.4f}")
- 
-    
+
     # Validate expected_nomov_ratio and adjust auto-tuning strategy if needed
     if args.expected_nomov_ratio < 0.0 or args.expected_nomov_ratio > 1.0:
         raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {args.expected_nomov_ratio}")
@@ -788,35 +787,32 @@ if __name__ == '__main__':
         auto_tune_nomov_thresholds = True
         threshold_tuning_strategy = "prior_quantile"
 
-
     # Validate backbone_lr_scale
     if args.backbone_lr_scale < 0.0 or args.backbone_lr_scale > 1.0:
         raise ValueError(f"backbone_lr_scale must be in the interval [0, 1]. Got {args.backbone_lr_scale}")
 
-    
     # -------------------------
     # Map dataset_path argument to actual dataset paths defined in DatasetPaths class
     # -------------------------
-    if(args.dataset_path == "all_TIs"):
+    if (args.dataset_path == "all_TIs"):
         dataset_path = DatasetPaths.ALL_TIs
-    elif(args.dataset_path == "No_TIs"):
+    elif (args.dataset_path == "No_TIs"):
         dataset_path = DatasetPaths.NO_TIs
-    elif(args.dataset_path == "No_BB"):
+    elif (args.dataset_path == "No_BB"):
         dataset_path = DatasetPaths.NO_BB
-    elif(args.dataset_path == "No_BB_No_RSI"):
+    elif (args.dataset_path == "No_BB_No_RSI"):
         dataset_path = DatasetPaths.NO_BB_NO_RSI
-    elif(args.dataset_path == "No_BB_No_OBV"):
+    elif (args.dataset_path == "No_BB_No_OBV"):
         dataset_path = DatasetPaths.NO_BB_NO_OBV
-    elif(args.dataset_path == "No_RSI"):
+    elif (args.dataset_path == "No_RSI"):
         dataset_path = DatasetPaths.NO_RSI
-    elif(args.dataset_path == "No_RSI_No_OBV"):
+    elif (args.dataset_path == "No_RSI_No_OBV"):
         dataset_path = DatasetPaths.NO_RSI_NO_OBV
-    elif(args.dataset_path == "No_OBV"):
+    elif (args.dataset_path == "No_OBV"):
         dataset_path = DatasetPaths.NO_OBV
     else:
         raise ValueError(f"Invalid dataset_path argument: {args.dataset_path}")
-    
-    
+
     setup_train_and_evaluate(
         dataset_path,
         args.num_epochs,
@@ -826,4 +822,3 @@ if __name__ == '__main__':
         auto_tune_nomov_thresholds,
         args.backbone_lr_scale,
     )
-

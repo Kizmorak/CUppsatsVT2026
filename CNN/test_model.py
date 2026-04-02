@@ -2,126 +2,133 @@ import timm
 import torch
 import model_maker_clean as model_maker
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
 from PIL import Image
+from pathlib import Path
+
 
 # -------------------------
-# Device and model
+# Configurations
 # -------------------------
-def device_spec_setup():
-    # Set the device to GPU if available, otherwise use CPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+workers_cpu = 0
+workers_gpu = 4
+batch_size_cpu = 8
+batch_size_gpu = 16
 
-    #optimize based on hardware
-    batch_size = batch_size_cpu if device.type == "cpu" else batch_size_gpu
-    num_workers = workers_cpu if device.type == "cpu" else workers_gpu
-    if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True
-    return device, batch_size, num_workers
+default_low = 0.2
+default_high = 0.8
 
-def run_saved_model(model_path, device):
-    # Set up model
+default_model_path = "final_models/all_TIs.pth"     # Path to the trained model weights
+default_img_path = "test_image.png"  # Path to the image you want to classify
+default_dataset_path = "datasets/all_TIs"  # Path to the backtesting dataset
 
-    model = timm.create_model("convnextv2_atto", pretrained=False)
-    model.reset_classifier(num_classes=1)  # because we use sigmoid binary
 
-    # Load the trained model weights
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
-    model.eval()
+class TestingModel:
 
-    # Define the mean and std for normalization 
-    mean = [0.485, 0.456, 0.406]
-    std  = [0.229, 0.224, 0.225]
+    def __init__(self, model_path=None):
+        self.model_path = self._resolve_path(model_path, default_model_path)
 
-    # Define the image transformations
-    transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean, std)
-    ])
-    return model, transform
+        # Set the device to GPU if available, otherwise use CPU
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print("Using device:", self.device)
 
-# -------------------------
-# Dataset
-# -------------------------
-def dataset_setup(batch_size, num_workers, dataset_path):
-    train_transform, eval_transform = transforms_setup()
-    
-    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=eval_transform)
+        # Optimize based on hardware
+        self.batch_size = batch_size_cpu if self.device.type == "cpu" else batch_size_gpu
+        self.num_workers = workers_cpu if self.device.type == "cpu" else workers_gpu
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True
 
-    # Balanced sampler
-    targets = np.array(train_dataset.targets)
-    class_counts = np.bincount(targets)
-    class_weights = np.divide(1.0, class_counts, out=np.zeros_like(class_counts, dtype=float), where=class_counts > 0)
-    sample_weights = class_weights[targets]
-    sampler = WeightedRandomSampler(
-        weights=torch.as_tensor(sample_weights, dtype=torch.double),
-        num_samples=len(sample_weights),
-        replacement=True,
-    )
+        # Set up model
+        self.model = timm.create_model("convnextv2_atto", pretrained=False)
+        self.model.reset_classifier(num_classes=1)  # because we use sigmoid binary
 
-    print("Train class counts:", {train_dataset.classes[i]: int(c) for i, c in enumerate(class_counts)})
-    backtest_3_class_loader = DataLoader(backtest_3_class_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    return backtest_3_class_dataset, backtest_3_class_loader
+        # Load the trained model weights
+        try:
+            state_dict = torch.load(self.model_path, map_location=self.device)
+        except (FileNotFoundError, OSError):
+            self.model_path = default_model_path
+            state_dict = torch.load(self.model_path, map_location=self.device)
 
-# -------------------------
-# Prediction functions
-# -------------------------
-def image_to_prediction(img_path, model, transform, device):
-    # Load and preprocess the image
-    image = Image.open(img_path).convert("RGB")
-    tensor = transform(image).unsqueeze(0).to(device)
+        self.model.load_state_dict(state_dict)
+        self.model.to(self.device)
+        self.model.eval()
 
-    # Get the model's output and convert it to a probability
-    with torch.no_grad():
-        output = model(tensor)
-        prob = torch.sigmoid(output).item()
+        # Define the mean and std for normalization 
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
 
-    if prob <= low:
-        prediction = "DOWN (A)", prob
-    elif prob >= high:
-        prediction = "UP (B)", prob
-    else:
-        prediction = "NOMOV", prob
+        # Define the image transformations
+        self.transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
 
-    # ----------------------------------
-    # Make a prediction on the image
-    # ----------------------------------
+    # -------------------------
+    # Helper functions
+    # -------------------------
+    @staticmethod
+    def _resolve_path(path, default_path):
+        if path is None:
+            return default_path
 
-    model, transform, device = run_saved_model(model_path)
-    prediction, prob = image_to_prediction(img_path, model, transform, device)
+        if isinstance(path, str):
+            cleaned = path.strip().strip('"').strip("'")
+            return cleaned or default_path
 
-    print(f"Probability: {prob:.4f}")
-    print(f"Prediction : {prediction}")
+        return str(Path(path))
 
-    return prediction, prob
+    # -------------------------
+    # Prediction functions
+    # -------------------------
+    def image_to_prediction(self, img_path=default_img_path, new_low=default_low, new_high=default_high):
+        low = new_low
+        high = new_high
 
-def backtesting_dataset_to_predictions(dataset_path, model, transform, device):
-    model_maker.backtest_3_class(model, device, dataset_path, backtest_3_class_loader, transform, train_dataset.classes)
+        img_path = self._resolve_path(img_path, default_img_path)
+
+        # Load and preprocess the image
+        image = Image.open(img_path).convert("RGB")
+        tensor = self.transform(image).unsqueeze(0).to(self.device)
+
+        # Get the model's output and convert it to a probability
+        with torch.no_grad():
+            output = self.model(tensor)
+            prob = torch.sigmoid(output).item()
+
+        if prob <= low:
+            prediction = "DOWN"
+        elif prob >= high:
+            prediction = "UP"
+        else:
+            prediction = "NOMOV"
+
+        print(f"Prediction : {prediction}")
+        print(f"Probability: {prob:.4f}")
+
+        return prediction, prob
+
+    def backtesting_dataset_to_predictions(
+        self, dataset_path=default_dataset_path, new_low=default_low, new_high=default_high
+            ):
+        dataset_path = self._resolve_path(dataset_path, default_dataset_path)
+        backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=self.transform)
+        backtest_3_class_loader = torch.utils.data.DataLoader(
+            backtest_3_class_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
+
+        low = new_low
+        high = new_high
+
+        model_maker.backtest_3_class(
+            self.model,
+            self.device,
+            dataset_path, 
+            backtest_3_class_loader,
+            self.transform,
+            manual_low_confidence_threshold=low,
+            manual_high_confidence_threshold=high
+            )
+
 
 if __name__ == '__main__':
-
-    # ----------------------------------
-    # Configurations
-    # ----------------------------------
-    img_path = "test_image.png"  # Path to the image you want to classify
-    model_path = "all_TIs.pth"     # Path to the trained model weights
-    dataset_path = "path_to_backtesting_dataset"  # Path to the backtesting dataset 
-
-    #----------------------------------
-    device, batch_size, num_workers = device_spec_setup()
-    model, transform, device =run_saved_model(model_path, device)
-    backtest_3_class_dataset, backtest_3_class_loader = dataset_setup(batch_size, num_workers, dataset_path="path_to_backtesting_dataset")
-
-    # ----------------------------------
-    # Make a prediction on the image
-    
-    prediction, prob = image_to_prediction(img_path, model, transform, device)
-
-    # ----------------------------------
-    # Make predictions on the backtesting dataset
-    
-    # backtesting_dataset_to_predictions(model, device, dataset_path, backtest_3_class_loader, transform)
-
-
+    pass
