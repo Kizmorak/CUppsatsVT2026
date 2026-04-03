@@ -13,7 +13,7 @@ def make_model(dataset_path, num_epochs, nomov_ratio=(0.8), num_stages_to_unfree
             manual_thresholds=manual_thresholds)
 
     except Exception as e:
-        print(f"Error occurred while training and evaluating model: {dataset_path}, {num_epochs}: {e}")
+        print(f"Error occurred while training and evaluating model: {dataset_path}, {num_epochs} epochs: {e}")
 
 # Add eval results to file
     add_eval_results_to_file()
@@ -50,57 +50,77 @@ def add_eval_results_to_file():
 
 if __name__ == '__main__':
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.ALL_TIs,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.ALL_TIs,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_TIs,
-            num_epochs=8
-            )
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_TIs,
+    #         num_epochs=8
+    #         )
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_BB,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_BB,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_BB_NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_BB_NO_OBV,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_BB_NO_RSI,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_BB_NO_RSI,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_OBV,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_RSI,
-            num_epochs=8)
-            
-    for i in range(1):
-        make_model(
-            dataset_path=model_maker.DatasetPaths.NO_RSI_NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_RSI,
+    #         num_epochs=8)
 
-# -------------------------
-# Testing the models
-# -------------------------
+    # for i in range(1):
+    #     make_model(
+    #         dataset_path=model_maker.DatasetPaths.NO_RSI_NO_OBV,
+    #         num_epochs=8)
 
-# Example usage of the testing functions
-image_path = "test_image.png"
-dataset_path = "datasets/all_TIs"
-low_threshold = 0.2
-high_threshold = 0.8
+    # -------------------------
+    # Testing the models
+    # -------------------------
 
-testing_model = test_model.TestingModel()
-# testing_model.image_to_prediction(image_path, low_threshold, high_threshold)
-# testing_model.backtesting_dataset_to_predictions(dataset_path, low_threshold, high_threshold)
+    # Example usage of the testing functions
+
+    model_name = "all_TIs"
+    low_threshold = 0.2
+    high_threshold = 0.8
+
+    # <model_name>_model = test_model.TestingModel("final_models/<model_name>.pth")
+    all_TIs_testing_model = test_model.TestingModel("all_TIs")
+    # no_TIs_testing_model = test_model.TestingModel("final_models/no_TIs.pth")
+    # no_BB_testing_model = test_model.TestingModel("final_models/no_BB.pth")
+    # no_BB_NO_OBV_testing_model = test_model.TestingModel("final_models/no_BB_NO_OBV.pth")
+    # no_BB_NO_RSI_testing_model = test_model.TestingModel("final_models/no_BB_NO_RSI.pth")
+    # no_OBV_testing_model = test_model.TestingModel("final_models/no_OBV.pth")
+    # no_RSI_testing_model = test_model.TestingModel("final_models/no_RSI.pth")
+    # no_RSI_NO_OBV_testing_model = test_model.TestingModel("final_models/no_RSI_NO_OBV.pth")
+
+    # <model_name>_model.image_to_prediction("inputGraph/<model_name>/", low_threshold, high_threshold)
+    all_TIs_testing_model.image_to_prediction()
+
+    # <model_name>_model.backtesting_dataset_to_predictions("datasets/<model_name>", low_threshold, high_threshold)
+
+    # all_TIs_testing_model.backtesting_dataset_to_predictions("datasets/all_TIs", low_threshold, high_threshold)
+    # no_TIs_testing_model.backtesting_dataset_to_predictions("datasets/No_TIs", low_threshold, high_threshold)
+    # no_BB_testing_model.backtesting_dataset_to_predictions("datasets/No_BB", low_threshold, high_threshold)
+    # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_BB_No_OBV", low_threshold, high_threshold)
+    # no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions("datasets/No_BB_No_RSI", low_threshold, high_threshold)
+    # no_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_OBV", low_threshold, high_threshold)
+    # no_RSI_testing_model.backtesting_dataset_to_predictions("datasets/No_RSI", low_threshold, high_threshold)
+    # no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_RSI_No_OBV", low_threshold, high_threshold)

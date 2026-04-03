@@ -24,7 +24,7 @@ class DatasetPaths(Enum):
     NO_OBV = "No_OBV"
 
     def __str__(self):
-        return str("datasets/" + self.value)
+        return str(self.value)
 
 
 # -------------------------
@@ -87,7 +87,7 @@ def device_spec_setup():
 def transforms_setup():
     # Define the mean and standard deviation for normalization (these are commonly used values for pre-trained models)
     mean = [0.485, 0.456, 0.406]
-    std  = [0.229, 0.224, 0.225]
+    std = [0.229, 0.224, 0.225]
 
     # Limited data augmentation for fine-tuning
     if use_random_affine:
@@ -119,7 +119,9 @@ def transforms_setup():
 # -------------------------
 def dataset_setup(batch_size, num_workers, dataset_path):
     train_transform, eval_transform = transforms_setup()
-    
+
+    dataset_path = f"datasets/{dataset_path}"
+
     train_dataset = ImageFolder(root=f"{dataset_path}/train", transform=train_transform)
     val_dataset = ImageFolder(root=f"{dataset_path}/val", transform=eval_transform)
     backtest_2_class_dataset = ImageFolder(root=f"{dataset_path}/threshold_estimationAB", transform=eval_transform)
@@ -215,6 +217,7 @@ def optimizer_setup(model, lr=base_lr, backbone_lr_scale=backbone_lr_scale):
         f"head_params={len(head_params)}, backbone_params={len(backbone_params)}"
     )
     return optimizer
+
 
 # -------------------------
 # Scheduler
@@ -318,25 +321,25 @@ def backtest_2_class(model, backtest_2_class_loader, device, dataset_path):
     print(cm_val)
 
     # Save validation results to a file for record-keeping and analysis
-    with open("Evaluation_results.txt", "a") as f:
-        f.write("Validation (A/B) summary:\n")
-        f.write(f"Datetime: {datetime.now()}\n")
-        f.write(f"Dataset path: {dataset_path}\n")
-        f.write(f"Validation (A/B) confusion matrix:\n{cm_val}\n")
-        f.write(f"Total samples: {len(backtest_2_class_preds)}\n")
-        f.write(f"Correct predictions: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels))}\n")
-        f.write(f"Accuracy: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels)) / len(backtest_2_class_preds):.4f}\n")
-        f.write(f"Average confidence: {np.mean(backtest_2_class_confidences):.4f}\n")
-        f.write(f"Macro F1: {f1_score(backtest_2_class_labels, backtest_2_class_preds, average='macro'):.4f}\n")
-        f.write(f"Balanced Accuracy: {balanced_accuracy_score(backtest_2_class_labels, backtest_2_class_preds):.4f}\n")
-        f.write("-" * 50 + "\n")
+    # with open(f"evaluation_results/{dataset_path}_Evaluation_results.txt", "a") as f:
+    #     f.write("Validation (A/B) summary:\n")
+    #     f.write(f"Datetime: {datetime.now()}\n")
+    #     f.write(f"Dataset path: {dataset_path}\n")
+    #     f.write(f"Validation (A/B) confusion matrix:\n{cm_val}\n")
+    #     f.write(f"Total samples: {len(backtest_2_class_preds)}\n")
+    #     f.write(f"Correct predictions: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels))}\n")
+    #     f.write(f"Accuracy: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels)) / len(backtest_2_class_preds):.4f}\n")
+    #     f.write(f"Average confidence: {np.mean(backtest_2_class_confidences):.4f}\n")
+    #     f.write(f"Macro F1: {f1_score(backtest_2_class_labels, backtest_2_class_preds, average='macro'):.4f}\n")
+    #     f.write(f"Balanced Accuracy: {balanced_accuracy_score(backtest_2_class_labels, backtest_2_class_preds):.4f}\n")
+    #     f.write("-" * 50 + "\n")
 
 
 # -------------------------
 # Evaluation on nomov_val (3 class)
 # -------------------------
 def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_transform, expected_nomov_ratio=0.0, auto_tune_nomov_thresholds=True, manual_low_confidence_threshold=0.0, manual_high_confidence_threshold=0.0):
-    backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/threshold_estimation", transform=eval_transform)
+    backtest_3_class_dataset = ImageFolder(root=f"datasets/{dataset_path}/threshold_estimation", transform=eval_transform)
 
     nomov_probs = []
     nomov_labels = []
@@ -580,9 +583,35 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
         print(f"\nA/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})")
 
     # -------------------------
+    # Save predictions CSV file method (for backtesting)
+    # -------------------------
+    def save_csv_predictions(preds, dataset):
+        def extract_datetime_from_path(path):
+            filename = os.path.basename(path)
+            stem = os.path.splitext(filename)[0]
+            dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
+            plus = dt + timedelta(minutes=31)
+            return plus.strftime("%Y-%m-%d %H:%M:00")
+
+        with open(f"{dataset_path}_Backtesting_predictions.csv", "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["time", "target"])
+            for (path, _), pred in zip(dataset.samples, preds):
+                if pred == 0:
+                    target = 1
+                elif pred == 1:
+                    target = 0
+                else:
+                    continue  # Skip NOMOV predictions: they are not actionable signals.
+                t = extract_datetime_from_path(path)
+                writer.writerow([t, target])
+
+        print("\n3 class evaluation completed and results saved to Backtesting_predictions.csv")
+
+    # -------------------------
     # Save evaluation results to a file for record-keeping and analysis
     # -------------------------
-    with open("Evaluation_results.txt", "a") as f:
+    with open(f"evaluation_results/{dataset_path}_Evaluation_results.txt", "a") as f:
         f.write("-" * 50 + "\n")
         f.write("3 class evaluation summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
@@ -629,36 +658,13 @@ def backtest_3_class(model, device, dataset_path, backtest_3_class_loader, eval_
         f.write(f"\nBalanced accuracy (macro recall): {balanced_accuracy:.4f}\n")
         f.write(f"Macro F1: {macro_f1:.4f}\n")
         f.write(f"A/B subset accuracy (ignoring NOMOV): {ab_accuracy:.4f} (n={np.sum(ab_mask)})\n")
-        f.write(f"-" * 50 + "\n")
+        f.write("-" * 50 + "\n")
+
+        print("\n3 class evaluation completed and results saved to Evaluation_results.txt")
 
         return low_confidence_threshold, high_confidence_threshold, nomov_preds
 
-
-# -------------------------
-# Save predictions CSV file method (for backtesting)
-# -------------------------
-def save_csv_predictions(preds, dataset):
-    def extract_datetime_from_path(path):
-        filename = os.path.basename(path)
-        stem = os.path.splitext(filename)[0]
-        dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
-        plus = dt + timedelta(minutes=31)
-        return plus.strftime("%Y-%m-%d %H:%M:00")
-
-    with open("backtesting_predictions.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["time", "target"])
-        for (path, _), pred in zip(dataset.samples, preds):
-            if pred == 0:
-                target = 1
-            elif pred == 1:
-                target = 0
-            else:
-                continue  # Skip NOMOV predictions: they are not actionable signals.
-            t = extract_datetime_from_path(path)
-            writer.writerow([t, target])
-
-    print("\n3 class evaluation completed and results saved to Evaluation_results.txt and backtesting_predictions.csv")
+    save_csv_predictions(preds=nomov_preds, dataset=backtest_3_class_dataset)
 
 
 def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold), auto_tune_nomov_thresholds=auto_tune_nomov_thresholds, backbone_lr_scale=backbone_lr_scale):
@@ -679,24 +685,26 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
         print(f"Using manual NOMOV thresholds: {manual_thresholds}")
     print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
 
+    # --------------------------
     # Save validation results to a file for record-keeping and analysis
-    with open("Evaluation_results.txt", "a") as f:
-        f.seek(0)  # Move to the beginning of the file
-        f.truncate()  # Clear the file before writing new results
-        f.write("-" * 50 + "\n")
-        f.write("New training run:\n")
-        f.write(f"Datetime: {datetime.now()}\n")
-        f.write(f"Dataset path: {dataset_path}\n")
-        f.write(f"Number of epochs: {num_epochs}\n")
-        f.write(f"Base learning rate: {base_lr}\n")
-        f.write(f"Backbone LR scale: {backbone_lr_scale}\n")
-        f.write(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}\n")
-        if manual_thresholds != (0, 0):
-            f.write(f"Manual low confidence threshold: {manual_thresholds[0]}\n")
-            f.write(f"Manual high confidence threshold: {manual_thresholds[1]}\n")
-        else:
-            f.write("Auto-tuning of NOMOV thresholds\n")
-            f.write(f"Expected NOMOV ratio: {expected_nomov_ratio}\n")
+    # --------------------------
+    # with open(f"{dataset_path}_Evaluation_results.txt", "a") as f:
+    #     f.seek(0)  # Move to the beginning of the file
+    #     f.truncate()  # Clear the file before writing new results
+    #     f.write("-" * 50 + "\n")
+    #     f.write("New training run:\n")
+    #     f.write(f"Datetime: {datetime.now()}\n")
+    #     f.write(f"Dataset path: {dataset_path}\n")
+    #     f.write(f"Number of epochs: {num_epochs}\n")
+    #     f.write(f"Base learning rate: {base_lr}\n")
+    #     f.write(f"Backbone LR scale: {backbone_lr_scale}\n")
+    #     f.write(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}\n")
+    #     if manual_thresholds != (0, 0):
+    #         f.write(f"Manual low confidence threshold: {manual_thresholds[0]}\n")
+    #         f.write(f"Manual high confidence threshold: {manual_thresholds[1]}\n")
+    #     else:
+    #         f.write("Auto-tuning of NOMOV thresholds\n")
+    #         f.write(f"Expected NOMOV ratio: {expected_nomov_ratio}\n")
 
     # -------------------------
     # Setup
@@ -742,20 +750,19 @@ def setup_train_and_evaluate(dataset_path, num_epochs, expected_nomov_ratio=defa
         manual_high_confidence_threshold=manual_thresholds[1],
     )
 
-    save_csv_predictions(preds=nomov_preds, dataset=backtest_3_class_dataset)
 
     # -------------------------
     # Save the trained model
     # -------------------------
-    torch.save(model.state_dict(), f"{dataset_path}.pth")
+    torch.save(model.state_dict(), f"final_models/{dataset_path}_model.pth")
 
 
 if __name__ == '__main__':
     # -------------------------
     # Argument parsing to allow easy configuration from command line
     # -------------------------
-    argparser = argparse.ArgumentParser(prog = "CNN Training", description="Fine-tune ConvNeXt")
-    argparser.add_argument("-d", "--dataset_path", type=str, default="all_TIs", help="se Enums")
+    argparser = argparse.ArgumentParser(prog="CNN Training", description="Fine-tune ConvNeXt")
+    argparser.add_argument("-d", "--dataset_path", type=str, default=default_dataset_path.value, help="se Enums")
     argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
     argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for 3 class classification (used when auto_tune_nomov_thresholds is False)")
     argparser.add_argument("-r", "--expected_nomov_ratio", type=float, default=default_expected_nomov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
@@ -771,7 +778,7 @@ if __name__ == '__main__':
         raise ValueError("manual_thresholds argument must contain exactly 2 values: low and high confidence thresholds")
     elif args.manual_thresholds == [0, 0]:
         pass
-    else:        
+    else:
         if args.manual_thresholds[0] < 0.0 or args.manual_thresholds[0] > 1.0 or args.manual_thresholds[1] < 0.0 or args.manual_thresholds[1] > 1.0:
             raise ValueError(f"Manual thresholds must be between 0 and 1. Got {args.manual_thresholds}")
         elif args.manual_thresholds[0] >= args.manual_thresholds[1]:
@@ -783,7 +790,7 @@ if __name__ == '__main__':
     # Validate expected_nomov_ratio and adjust auto-tuning strategy if needed
     if args.expected_nomov_ratio < 0.0 or args.expected_nomov_ratio > 1.0:
         raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {args.expected_nomov_ratio}")
-    elif args.expected_nomov_ratio > 0.0 and args.expected_nomov_ratio < 1.0: 
+    elif args.expected_nomov_ratio > 0.0 and args.expected_nomov_ratio < 1.0:
         auto_tune_nomov_thresholds = True
         threshold_tuning_strategy = "prior_quantile"
 

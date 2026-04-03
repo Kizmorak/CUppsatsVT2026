@@ -18,19 +18,15 @@ batch_size_gpu = 16
 default_low = 0.2
 default_high = 0.8
 
-default_model_path = "final_models/all_TIs.pth"     # Path to the trained model weights
-default_img_path = "test_image.png"  # Path to the image you want to classify
-default_dataset_path = "datasets/all_TIs"  # Path to the backtesting dataset
-
 
 class TestingModel:
 
-    def __init__(self, model_path=None):
-        self.model_path = self._resolve_path(model_path, default_model_path)
+    def __init__(self, model_name=None):
+        self.model_name = model_name
+        self.model_path = f"final_models/{self.model_name}.pth"
 
         # Set the device to GPU if available, otherwise use CPU
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print("Using device:", self.device)
 
         # Optimize based on hardware
         self.batch_size = batch_size_cpu if self.device.type == "cpu" else batch_size_gpu
@@ -46,14 +42,16 @@ class TestingModel:
         try:
             state_dict = torch.load(self.model_path, map_location=self.device)
         except (FileNotFoundError, OSError):
-            self.model_path = default_model_path
-            state_dict = torch.load(self.model_path, map_location=self.device)
+            print(f"Error: Model file not found at {self.model_path}")
+            raise
 
         self.model.load_state_dict(state_dict)
         self.model.to(self.device)
         self.model.eval()
 
-        # Define the mean and std for normalization 
+        print(f"Model loaded from: {self.model_path}")
+
+        # Define the mean and std for normalization
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
 
@@ -65,27 +63,14 @@ class TestingModel:
         ])
 
     # -------------------------
-    # Helper functions
-    # -------------------------
-    @staticmethod
-    def _resolve_path(path, default_path):
-        if path is None:
-            return default_path
-
-        if isinstance(path, str):
-            cleaned = path.strip().strip('"').strip("'")
-            return cleaned or default_path
-
-        return str(Path(path))
-
-    # -------------------------
     # Prediction functions
     # -------------------------
-    def image_to_prediction(self, img_path=default_img_path, new_low=default_low, new_high=default_high):
+    def image_to_prediction(self, new_low=default_low, new_high=default_high):
         low = new_low
         high = new_high
 
-        img_path = self._resolve_path(img_path, default_img_path)
+        folder = Path("inputGraph/" + self.model_name + "/")
+        img_path = next(folder.glob("*.png"))
 
         # Load and preprocess the image
         image = Image.open(img_path).convert("RGB")
@@ -97,21 +82,21 @@ class TestingModel:
             prob = torch.sigmoid(output).item()
 
         if prob <= low:
-            prediction = "DOWN"
+            prediction = "sell"
         elif prob >= high:
-            prediction = "UP"
+            prediction = "buy"
         else:
-            prediction = "NOMOV"
+            prediction = ""
 
         print(f"Prediction : {prediction}")
         print(f"Probability: {prob:.4f}")
 
-        return prediction, prob
+        return prediction
 
     def backtesting_dataset_to_predictions(
-        self, dataset_path=default_dataset_path, new_low=default_low, new_high=default_high
+        self, new_low=default_low, new_high=default_high
             ):
-        dataset_path = self._resolve_path(dataset_path, default_dataset_path)
+        dataset_path = self._resolve_path("datasets/" + self.model_name)
         backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=self.transform)
         backtest_3_class_loader = torch.utils.data.DataLoader(
             backtest_3_class_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
@@ -122,7 +107,7 @@ class TestingModel:
         model_maker.backtest_3_class(
             self.model,
             self.device,
-            dataset_path, 
+            self.dataset_path,
             backtest_3_class_loader,
             self.transform,
             manual_low_confidence_threshold=low,
