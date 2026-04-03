@@ -1,19 +1,19 @@
-import model_maker_clean as model_maker
+import model_maker
 import test_model
 
 
-def make_model(dataset_path, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze=(1), manual_thresholds=(0, 0)):
+def make_model(model_name, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze=(1), manual_thresholds=(0, 0)):
     # Make models
     try:
         model_maker.setup_train_and_evaluate(
-            dataset_path=dataset_path,
+            model_name=model_name,
             num_epochs=num_epochs,
             expected_nomov_ratio=nomov_ratio,
             num_stages_to_unfreeze=num_stages_to_unfreeze,
             manual_thresholds=manual_thresholds)
 
     except Exception as e:
-        print(f"Error occurred while training and evaluating model: {dataset_path}, {num_epochs} epochs: {e}")
+        print(f"Error occurred while training and evaluating model: {model_name}, {num_epochs} epochs: {e}")
 
 # Add eval results to file
     add_eval_results_to_file()
@@ -52,43 +52,43 @@ if __name__ == '__main__':
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.ALL_TIs,
+    #         model_name=model_maker.ModelNames.ALL_TIs,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_TIs,
+    #         model_name=model_maker.ModelNames.NO_TIs,
     #         num_epochs=8
     #         )
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_BB,
+    #         model_name=model_maker.ModelNames.NO_BB,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_BB_NO_OBV,
+    #         model_name=model_maker.ModelNames.NO_BB_NO_OBV,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_BB_NO_RSI,
+    #         model_name=model_maker.ModelNames.NO_BB_NO_RSI,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_OBV,
+    #         model_name=model_maker.ModelNames.NO_OBV,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_RSI,
+    #         model_name=model_maker.ModelNames.NO_RSI,
     #         num_epochs=8)
 
     # for i in range(1):
     #     make_model(
-    #         dataset_path=model_maker.DatasetPaths.NO_RSI_NO_OBV,
+    #         model_name=model_maker.ModelNames.NO_RSI_NO_OBV,
     #         num_epochs=8)
 
     # -------------------------
@@ -98,29 +98,25 @@ if __name__ == '__main__':
     # Example usage of the testing functions
 
     model_name = "all_TIs"
-    low_threshold = 0.2
-    high_threshold = 0.8
+    low_threshold = 0.1
+    high_threshold = 0.9
 
-    # <model_name>_model = test_model.TestingModel("final_models/<model_name>.pth")
     all_TIs_testing_model = test_model.TestingModel("all_TIs")
-    # no_TIs_testing_model = test_model.TestingModel("final_models/no_TIs.pth")
-    # no_BB_testing_model = test_model.TestingModel("final_models/no_BB.pth")
-    # no_BB_NO_OBV_testing_model = test_model.TestingModel("final_models/no_BB_NO_OBV.pth")
-    # no_BB_NO_RSI_testing_model = test_model.TestingModel("final_models/no_BB_NO_RSI.pth")
-    # no_OBV_testing_model = test_model.TestingModel("final_models/no_OBV.pth")
-    # no_RSI_testing_model = test_model.TestingModel("final_models/no_RSI.pth")
-    # no_RSI_NO_OBV_testing_model = test_model.TestingModel("final_models/no_RSI_NO_OBV.pth")
+    # no_TIs_testing_model = test_model.TestingModel("No_TIs")
+    # no_BB_testing_model = test_model.TestingModel("No_BB")
+    # no_BB_NO_OBV_testing_model = test_model.TestingModel("No_BB_No_OBV")
+    # no_BB_NO_RSI_testing_model = test_model.TestingModel("No_BB_No_RSI")
+    # no_OBV_testing_model = test_model.TestingModel("No_OBV")
+    # no_RSI_testing_model = test_model.TestingModel("No_RSI")
+    # no_RSI_NO_OBV_testing_model = test_model.TestingModel("No_RSI_No_OBV")
 
-    # <model_name>_model.image_to_prediction("inputGraph/<model_name>/", low_threshold, high_threshold)
     all_TIs_testing_model.image_to_prediction()
 
-    # <model_name>_model.backtesting_dataset_to_predictions("datasets/<model_name>", low_threshold, high_threshold)
-
-    # all_TIs_testing_model.backtesting_dataset_to_predictions("datasets/all_TIs", low_threshold, high_threshold)
-    # no_TIs_testing_model.backtesting_dataset_to_predictions("datasets/No_TIs", low_threshold, high_threshold)
-    # no_BB_testing_model.backtesting_dataset_to_predictions("datasets/No_BB", low_threshold, high_threshold)
-    # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_BB_No_OBV", low_threshold, high_threshold)
-    # no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions("datasets/No_BB_No_RSI", low_threshold, high_threshold)
-    # no_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_OBV", low_threshold, high_threshold)
-    # no_RSI_testing_model.backtesting_dataset_to_predictions("datasets/No_RSI", low_threshold, high_threshold)
-    # no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions("datasets/No_RSI_No_OBV", low_threshold, high_threshold)
+    # all_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_BB_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_RSI_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)

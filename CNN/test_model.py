@@ -1,6 +1,6 @@
 import timm
 import torch
-import model_maker_clean as model_maker
+import model_maker
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from PIL import Image
@@ -15,15 +15,15 @@ workers_gpu = 4
 batch_size_cpu = 8
 batch_size_gpu = 16
 
-default_low = 0.2
-default_high = 0.8
+default_low = 0.1
+default_high = 0.9
 
 
 class TestingModel:
 
     def __init__(self, model_name=None):
         self.model_name = model_name
-        self.model_path = f"final_models/{self.model_name}.pth"
+        self.model_path = f"final_models/{self.model_name}_model.pth"
 
         # Set the device to GPU if available, otherwise use CPU
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -96,8 +96,7 @@ class TestingModel:
     def backtesting_dataset_to_predictions(
         self, new_low=default_low, new_high=default_high
             ):
-        dataset_path = self._resolve_path("datasets/" + self.model_name)
-        backtest_3_class_dataset = ImageFolder(root=f"{dataset_path}/backtesting", transform=self.transform)
+        backtest_3_class_dataset = ImageFolder(root=f"datasets/{self.model_name}/backtesting", transform=self.transform)
         backtest_3_class_loader = torch.utils.data.DataLoader(
             backtest_3_class_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
 
@@ -107,7 +106,7 @@ class TestingModel:
         model_maker.backtest_3_class(
             self.model,
             self.device,
-            self.dataset_path,
+            self.model_name,
             backtest_3_class_loader,
             self.transform,
             manual_low_confidence_threshold=low,

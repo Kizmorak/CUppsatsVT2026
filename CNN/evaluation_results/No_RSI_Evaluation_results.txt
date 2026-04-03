@@ -1,0 +1,68 @@
+--------------------------------------------------
+3 class evaluation summary:
+Datetime: 2026-04-03 16:22:36.074089
+Model name: No_RSI
+Thresholds used: low=0.0654, high=0.9175
+Validation (3 class) confusion matrix:
+Labels order: ['downMovement', 'upMovement', 'noMovement'], (rows=true, cols=predicted)
+[[   3,    2,   99],
+ [   4,    5,   78],
+ [  23,   49, 1487]]
+Total samples: 1750
+Correct predictions: 1495
+Accuracy: 0.8543
+Average confidence: 0.4402
+
+3 class confidence stats by predicted class:
+downMovement    | n=  30 | min=0.0159 | mean=0.0464 | max=0.0649
+upMovement      | n=  56 | min=0.9184 | mean=0.9422 | max=0.9831
+noMovement      | n=1664 | min=0.0659 | mean=0.4304 | max=0.9164
+
+3 class confidence stats by true class:
+downMovement    | n= 104 | mean_prob=0.4551 | std_prob=0.2270 | recall=0.0288
+upMovement      | n=  87 | mean_prob=0.4025 | std_prob=0.2741 | recall=0.0575
+noMovement      | n=1559 | mean_prob=0.4413 | std_prob=0.2500 | recall=0.9538
+
+3 class adjusted metrics:
+downMovement    | support= 104 | precision=0.1000 | recall=0.0288 | f1=0.0448
+upMovement      | support=  87 | precision=0.0893 | recall=0.0575 | f1=0.0699
+noMovement      | support=1559 | precision=0.8936 | recall=0.9538 | f1=0.9227
+
+Balanced accuracy (macro recall): 0.3467
+Macro F1: 0.3458
+A/B subset accuracy (ignoring NOMOV): 0.0419 (n=191)
+--------------------------------------------------
+--------------------------------------------------
+3 class evaluation summary:
+Datetime: 2026-04-03 20:58:42.259034
+Model name: No_RSI
+Thresholds used: low=0.0716, high=0.8911
+Validation (3 class) confusion matrix:
+Labels order: ['downMovement', 'upMovement', 'noMovement'], (rows=true, cols=predicted)
+[[   4,    0,  108],
+ [  11,    7,  118],
+ [  78,  122, 2414]]
+Total samples: 2862
+Correct predictions: 2425
+Accuracy: 0.8473
+Average confidence: 0.4680
+
+3 class confidence stats by predicted class:
+downMovement    | n=  93 | min=0.0118 | mean=0.0483 | max=0.0710
+upMovement      | n= 129 | min=0.8922 | mean=0.9311 | max=0.9904
+noMovement      | n=2640 | min=0.0720 | mean=0.4601 | max=0.8911
+
+3 class confidence stats by true class:
+downMovement    | n= 112 | mean_prob=0.4190 | std_prob=0.2090 | recall=0.0357
+upMovement      | n= 136 | mean_prob=0.4854 | std_prob=0.2539 | recall=0.0515
+noMovement      | n=2614 | mean_prob=0.4692 | std_prob=0.2543 | recall=0.9235
+
+3 class adjusted metrics:
+downMovement    | support= 112 | precision=0.0430 | recall=0.0357 | f1=0.0390
+upMovement      | support= 136 | precision=0.0543 | recall=0.0515 | f1=0.0528
+noMovement      | support=2614 | precision=0.9144 | recall=0.9235 | f1=0.9189
+
+Balanced accuracy (macro recall): 0.3369
+Macro F1: 0.3369
+A/B subset accuracy (ignoring NOMOV): 0.0444 (n=248)
+--------------------------------------------------
