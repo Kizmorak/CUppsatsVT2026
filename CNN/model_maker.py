@@ -11,6 +11,7 @@ from enum import Enum
 from datetime import datetime, timedelta
 import csv
 from pathlib import Path
+import threshold_estimator
 
 
 class ModelNames(Enum):
@@ -35,7 +36,7 @@ default_model_name = ModelNames.ALL_TIs  # Contains "train", "val", "threshold_e
 
 # Training parameters
 default_num_epochs = 10
-default_expected_nomov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning)
+default_expected_noMov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning)
 # Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, etc.)
 default_num_stages_to_unfreeze = 1
 # Augmentation options
@@ -49,15 +50,15 @@ batch_size_gpu = 16
 base_lr = 1e-4
 backbone_lr_scale = 0.1
 
-# Auto-tuning options for NOMOV thresholding
-auto_tune_nomov_thresholds = True
-# Manual fallback thresholds (used when auto_tune_nomov_thresholds == False)
-manual_low_confidence_threshold = 0.0
-manual_high_confidence_threshold = 0.0
+# Auto-tuning options for thresholding
+auto_tune_thresholds = True
+# Manual fallback thresholds (used when auto_tune_thresholds == False)
+manual_low_threshold = 0.0
+manual_high_threshold = 0.0
 
 
 # Threshold tuning strategy for 3 class mode.
-# Options: "prior_quantile" (uses expected_nomov_ratio) or "sweep" (grid-searches thresholds on backtesting set).
+# Options: "prior_quantile" (uses expected_noMov_ratio) or "sweep" (grid-searches thresholds on backtesting set).
 threshold_tuning_strategy = "sweep"
 # Objective used when threshold_tuning_strategy == "sweep". Options: "macro_f1", "balanced_accuracy".
 threshold_sweep_objective = "macro_f1"
@@ -322,39 +323,36 @@ def backtest_2_class(model, backtest_2_class_loader, device, model_name):
 # -------------------------
 # Evaluation on nomov_val (3 class)
 # -------------------------
-def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_transform, expected_nomov_ratio=0.0, auto_tune_nomov_thresholds=True, manual_low_confidence_threshold=0.0, manual_high_confidence_threshold=0.0):
+def backtest_3_class(
+        model,
+        device,
+        model_name,
+        backtest_3_class_loader,
+        eval_transform, expected_noMov_ratio=0.0,
+        auto_tune_thresholds=True,
+        manual_low_threshold=0.0,
+        manual_high_threshold=0.0
+        ):
     backtest_3_class_dataset = ImageFolder(root=f"datasets/{model_name}/threshold_estimation", transform=eval_transform)
 
     nomov_probs = []
     nomov_labels = []
 
-    # Helper functions for mapping between label indices, class names and 3 class labels.
-    # Assumes that the nomov_val dataset classes are a subset of {"downMovement", "upMovement", "noMovement"} but in any order, and maps them to 3 class labels [0:down/A, 1:up/B, 2:NOMOV].
-    def label_to_name_nomov(label_idx):
-        if label_idx == 0:
-            return "downMovement"
-        if label_idx == 1:
-            return "upMovement"
-        if label_idx == 2:
-            return "noMovement"
-        return None
+    name_to_open_label = {
+        "downMovement": 0,
+        "upMovement": 1,
+        "noMovement": 2,
+    }
 
-    def class_name_to_open_set_label(name):
-        if name == "noMovement":
-            return 2
-        if name == "upMovement":
-            return 1
-        if name == "downMovement":
-            return 0
-        return None
+    # Map dataset label index -> open-set label, and reverse
+    val_to_open = {
+        idx: name_to_open_label[name]
+        for idx, name in enumerate(backtest_3_class_dataset.classes)
+    }
 
-    # Map nomov_val folder class indices to 3 class label ids [0:down/A, 1:up/B, 2:NOMOV].
-    nomov_val_to_open_label = {}
-    for idx, cls_name in enumerate(backtest_3_class_dataset.classes):
-        mapped = class_name_to_open_set_label(cls_name)
-        if mapped is None:
-            raise ValueError(f"Could not map nomov_val class '{cls_name}' to 3 class")
-        nomov_val_to_open_label[idx] = mapped
+    def open_label_to_name(label: int) -> str:
+        name = {v: k for k, v in name_to_open_label.items()}
+        return name.get(label, "Unknown")
 
     # Get model probabilities on the nomov_val set and map to 3 class labels
     with torch.no_grad():
@@ -363,12 +361,8 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
             outputs = model(images)
             probs = torch.sigmoid(outputs).squeeze(1).flatten()
 
-            nomov_probs.extend(probs.cpu().numpy().tolist())
-            mapped_labels = [nomov_val_to_open_label[int(lbl)] for lbl in labels.cpu().numpy()]
-            nomov_labels.extend(mapped_labels)
-
-    high_confidence_threshold = manual_high_confidence_threshold
-    low_confidence_threshold = manual_low_confidence_threshold
+            nomov_probs.extend(probs.cpu().tolist())
+            nomov_labels.extend(val_to_open[int(lbl)] for lbl in labels)
 
     def predict_open_set(prob, low, high):
         if prob <= low:
@@ -383,115 +377,44 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
     # Print a summary of the 3 class evaluation before thresholding to understand the raw model outputs
     print("\n3 class evaluation (before thresholding):")
 
-    # -------------------------
-    # Threshold auto-tuning for 3 class classification
-    # -------------------------
-
-    # Compute metrics for given thresholds (used for auto-tuning)
-    def compute_metrics_for_thresholds(low, high):
-        preds = [predict_open_set(prob, low, high) for prob in nomov_probs]
-        cm = confusion_matrix(nomov_labels, preds, labels=[0, 1, 2])
-
-        tp_local = np.diag(cm).astype(float)
-        support_local = cm.sum(axis=1).astype(float)
-        pred_count_local = cm.sum(axis=0).astype(float)
-
-        recall_local = np.divide(tp_local, support_local, out=np.zeros_like(tp_local), where=support_local > 0)
-        precision_local = np.divide(tp_local, pred_count_local, out=np.zeros_like(tp_local), where=pred_count_local > 0)
-        f1_local = np.divide(
-            2 * precision_local * recall_local,
-            precision_local + recall_local,
-            out=np.zeros_like(tp_local),
-            where=(precision_local + recall_local) > 0,
+    # Adjust thresholds
+    low_threshold, high_threshold = None, None
+    if manual_high_threshold > 0 or manual_low_threshold > 0:
+        high_threshold, low_threshold = manual_high_threshold, manual_low_threshold
+        print(f"Manual thresholds applied: low={low_threshold:.4f}, high={high_threshold:.4f}")
+    else:
+        print("No manual thresholds applied. Thresholds will be auto-tuned based on expected_noMov_ratio and/or backtesting set performance.")
+        new_thresholds = threshold_estimator.ThresholdEstimator(
+            model, nomov_probs, nomov_labels, expected_noMov_ratio, threshold_sweep_steps=20, threshold_sweep_objective="macro_f1"
         )
-
-        macro_f1_local = float(np.mean(f1_local))
-        balanced_accuracy_local = float(np.mean(recall_local))
-        return macro_f1_local, balanced_accuracy_local
-
-    # Auto-tune NOMOV thresholds based on backtesting set performance if enabled
-    if auto_tune_nomov_thresholds and len(nomov_probs) > 0:
-        if threshold_tuning_strategy == "prior_quantile":
-            tail_ratio = max(0.0, min(0.49, (1.0 - expected_nomov_ratio) / 2.0))
-            low_confidence_threshold = float(np.quantile(nomov_probs, tail_ratio))
-            high_confidence_threshold = float(np.quantile(nomov_probs, 1.0 - tail_ratio))
-            print(
-                f"Threshold auto-tune (prior_quantile): expected_nomov_ratio={expected_nomov_ratio:.4f}, "
-                f"tail_ratio={tail_ratio:.4f}"
-            )
-        elif threshold_tuning_strategy == "sweep":
-            probs_np_for_grid = np.array(nomov_probs, dtype=float)
-            prob_min = float(np.quantile(probs_np_for_grid, 0.01))
-            prob_max = float(np.quantile(probs_np_for_grid, 0.99))
-
-            # Guard against degenerate probability distributions.
-            if prob_max <= prob_min:
-                prob_min = float(np.min(probs_np_for_grid))
-                prob_max = float(np.max(probs_np_for_grid))
-
-            grid = np.linspace(prob_min, prob_max, threshold_sweep_steps)
-
-            best_score = -1.0
-            best_balanced = -1.0
-            best_low = low_confidence_threshold
-            best_high = high_confidence_threshold
-
-            for low in grid:
-                for high in grid:
-                    if high <= low:
-                        continue
-
-                    macro_f1_candidate, balanced_candidate = compute_metrics_for_thresholds(float(low), float(high))
-                    candidate_score = macro_f1_candidate if threshold_sweep_objective == "macro_f1" else balanced_candidate
-
-                    # Tie-break with balanced accuracy to avoid unstable picks.
-                    if (candidate_score > best_score) or (
-                        abs(candidate_score - best_score) <= 1e-12 and balanced_candidate > best_balanced
-                    ):
-                        best_score = candidate_score
-                        best_balanced = balanced_candidate
-                        best_low = float(low)
-                        best_high = float(high)
-
-            low_confidence_threshold = best_low
-            high_confidence_threshold = best_high
-            print(
-                f"\nThreshold auto-tune (sweep): objective={threshold_sweep_objective}, "
-                f"best_score={best_score:.4f}, best_balanced_acc={best_balanced:.4f}, "
-                f"best_low={low_confidence_threshold:.4f}, best_high={high_confidence_threshold:.4f}"
-            )
-        else:
-            raise ValueError(
-                f"Invalid threshold_tuning_strategy: {threshold_tuning_strategy}. "
-                f"Use 'prior_quantile' or 'sweep'."
-            )
+        high_threshold, low_threshold = new_thresholds.estimate_thresholds()
 
     # -------------------------
     # Final evaluation with selected thresholds
     # -------------------------
     # Compute predictions after threshold selection so auto-tuned thresholds are actually applied.
-    nomov_preds = [predict_open_set(prob, low_confidence_threshold, high_confidence_threshold) for prob in nomov_probs]
+    nomov_preds = [predict_open_set(prob, low_threshold, high_threshold) for prob in nomov_probs]
     nomov_labels_np = np.array(nomov_labels)
     nomov_preds_np = np.array(nomov_preds)
     nomov_probs_np = np.array(nomov_probs)
     nomov_accuracy = sum(nomov_preds_np == nomov_labels_np) / len(nomov_preds)
     print(f"\nCorrect predictions: {sum(nomov_preds_np == nomov_labels_np)}")
-    print(f"High confidence samples: {sum(1 for p in nomov_probs if p >= high_confidence_threshold)}")
-    print(f"Low confidence samples: {sum(1 for p in nomov_probs if p <= low_confidence_threshold)}")
-    print(f"Uncertain samples: {sum(1 for p in nomov_probs if low_confidence_threshold < p < high_confidence_threshold)}")
+    print(f"High confidence samples: {sum(1 for p in nomov_probs if p >= high_threshold)}")
+    print(f"Low confidence samples: {sum(1 for p in nomov_probs if p <= low_threshold)}")
+    print(f"Uncertain samples: {sum(1 for p in nomov_probs if low_threshold < p < high_threshold)}")
 
     cm_nomov = confusion_matrix(nomov_labels, nomov_preds, labels=[0, 1, 2])
 
-    print(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}")
+    print(f"Thresholds used: low={low_threshold:.4f}, high={high_threshold:.4f}")
     print(f"Accuracy: {nomov_accuracy:.4f}")
     print(f"Average confidence: {np.mean(nomov_probs):.4f}")
     print("\nOpen-set (3 class) confusion matrix:")
-    print("Matrix labels order:", [label_to_name_nomov(i) for i in [0, 1, 2]])
+    print("Matrix labels order:", [open_label_to_name(i) for i in [0, 1, 2]])
     print(cm_nomov)
 
     print("\n3 class confidence stats by predicted class:")
     for class_idx in [0, 1, 2]:
-        class_name = label_to_name_nomov(class_idx)
+        class_name = open_label_to_name(class_idx)
         class_conf = nomov_probs_np[nomov_preds_np == class_idx]
         if class_conf.size == 0:
             print(f"{class_name:15s} | n=0")
@@ -503,7 +426,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
 
     print("\n3 class confidence stats by true class:")
     for class_idx in [0, 1, 2]:
-        class_name = label_to_name_nomov(class_idx)
+        class_name = open_label_to_name(class_idx)
         mask = (nomov_labels_np == class_idx)
         class_conf = nomov_probs_np[mask]
         if class_conf.size == 0:
@@ -537,9 +460,9 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
     # Prior-adjusted accuracy using class recalls (more informative when classes are imbalanced)
     equal_prior = np.array([1 / 3, 1 / 3, 1 / 3], dtype=float)
     deploy_prior = np.array([
-        (1.0 - expected_nomov_ratio) / 2.0,
-        (1.0 - expected_nomov_ratio) / 2.0,
-        expected_nomov_ratio,
+        (1.0 - expected_noMov_ratio) / 2.0,
+        (1.0 - expected_noMov_ratio) / 2.0,
+        expected_noMov_ratio,
     ], dtype=float)
     deploy_prior = np.clip(deploy_prior, 0.0, 1.0)
     deploy_prior = deploy_prior / deploy_prior.sum()
@@ -550,7 +473,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
 
     print("\n3 class adjusted metrics:")
     for class_idx in [0, 1, 2]:
-        class_name = label_to_name_nomov(class_idx)
+        class_name = open_label_to_name(class_idx)
         print(
             f"{class_name:15s} | support={int(support[class_idx]):4d} | "
             f"precision={precision_per_class[class_idx]:.4f} | "
@@ -558,7 +481,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
         )
 
     print(f"Adjusted accuracy (equal prior 3 class): {adjusted_acc_equal:.4f}")
-    print(f"Adjusted accuracy (deployment prior, NOMOV={expected_nomov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
+    print(f"Adjusted accuracy (deployment prior, NOMOV={expected_noMov_ratio:.2f}): {adjusted_acc_deploy:.4f}")
 
     # Print accuracy for only the A/B subset of the nomov_val set to understand how well the model distinguishes A vs B without considering NOMOV.
     ab_mask = nomov_labels_np < 2
@@ -613,9 +536,9 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
         f.write("3 class evaluation summary:\n")
         f.write(f"Datetime: {datetime.now()}\n")
         f.write(f"Model name: {model_name}\n")
-        f.write(f"Thresholds used: low={low_confidence_threshold:.4f}, high={high_confidence_threshold:.4f}\n")
+        f.write(f"Thresholds used: low={low_threshold:.4f}, high={high_threshold:.4f}\n")
         f.write(f"Validation (3 class) confusion matrix:\n")
-        f.write(f"Labels order: {[label_to_name_nomov(i) for i in [0, 1, 2]]}, (rows=true, cols=predicted)\n")
+        f.write(f"Labels order: {[open_label_to_name(i) for i in [0, 1, 2]]}, (rows=true, cols=predicted)\n")
         f.write(np.array2string(cm_nomov, separator=", ") + "\n")
         f.write(f"Total samples: {len(nomov_preds)}\n")
         f.write(f"Correct predictions: {sum(nomov_preds_np == nomov_labels_np)}\n")
@@ -623,7 +546,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
         f.write(f"Average confidence: {np.mean(nomov_probs):.4f}\n")
         f.write("\n3 class confidence stats by predicted class:\n")
         for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
+            class_name = open_label_to_name(class_idx)
             class_conf = nomov_probs_np[nomov_preds_np == class_idx]
             if class_conf.size == 0:
                 f.write(f"{class_name:15s} | n=0\n")
@@ -634,7 +557,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
                 )
         f.write("\n3 class confidence stats by true class:\n")
         for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
+            class_name = open_label_to_name(class_idx)
             mask = (nomov_labels_np == class_idx)
             class_conf = nomov_probs_np[mask]
             if class_conf.size == 0:
@@ -647,7 +570,7 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
                 )
         f.write("\n3 class adjusted metrics:\n")
         for class_idx in [0, 1, 2]:
-            class_name = label_to_name_nomov(class_idx)
+            class_name = open_label_to_name(class_idx)
             f.write(
                 f"{class_name:15s} | support={int(support[class_idx]):4d} | precision={precision_per_class[class_idx]:.4f} | "
                 f"recall={recall_per_class[class_idx]:.4f} | f1={f1_per_class[class_idx]:.4f}\n"
@@ -659,10 +582,10 @@ def backtest_3_class(model, device, model_name, backtest_3_class_loader, eval_tr
 
         print("\n3 class evaluation completed and results saved to Evaluation_results.txt")
 
-        return low_confidence_threshold, high_confidence_threshold, nomov_preds
+        return low_threshold, high_threshold, nomov_preds
 
 
-def setup_train_and_evaluate(model_name, num_epochs, expected_nomov_ratio=default_expected_nomov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_confidence_threshold, manual_high_confidence_threshold), auto_tune_nomov_thresholds=auto_tune_nomov_thresholds, backbone_lr_scale=backbone_lr_scale):
+def setup_train_and_evaluate(model_name, num_epochs, expected_noMov_ratio=default_expected_noMov_ratio, num_stages_to_unfreeze=default_num_stages_to_unfreeze, manual_thresholds = (manual_low_threshold, manual_high_threshold), auto_tune_thresholds=auto_tune_thresholds, backbone_lr_scale=backbone_lr_scale):
     # --------------------------
     # Print configuration summary
     # --------------------------
@@ -672,10 +595,10 @@ def setup_train_and_evaluate(model_name, num_epochs, expected_nomov_ratio=defaul
     print(f"Number of epochs: {num_epochs}")
     print(f"Base learning rate: {base_lr}")
     print(f"Backbone LR scale: {backbone_lr_scale}")
-    if auto_tune_nomov_thresholds:
+    if auto_tune_thresholds:
         print(f"Auto-tuning NOMOV thresholds")
-        if expected_nomov_ratio > 0.0 and expected_nomov_ratio < 1.0:
-            print(f"Expected NOMOV ratio for auto-tuning: {expected_nomov_ratio:.4f}")
+        if expected_noMov_ratio > 0.0 and expected_noMov_ratio < 1.0:
+            print(f"Expected NOMOV ratio for auto-tuning: {expected_noMov_ratio:.4f}")
     else:
         print(f"Using manual NOMOV thresholds: {manual_thresholds}")
     print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
@@ -699,7 +622,7 @@ def setup_train_and_evaluate(model_name, num_epochs, expected_nomov_ratio=defaul
     #         f.write(f"Manual high confidence threshold: {manual_thresholds[1]}\n")
     #     else:
     #         f.write("Auto-tuning of NOMOV thresholds\n")
-    #         f.write(f"Expected NOMOV ratio: {expected_nomov_ratio}\n")
+    #         f.write(f"Expected NOMOV ratio: {expected_noMov_ratio}\n")
 
     # -------------------------
     # Setup
@@ -739,10 +662,10 @@ def setup_train_and_evaluate(model_name, num_epochs, expected_nomov_ratio=defaul
         model_name=model_name,
         backtest_3_class_loader=backtest_3_class_loader,
         eval_transform=eval_transform,
-        expected_nomov_ratio=expected_nomov_ratio,
-        auto_tune_nomov_thresholds=auto_tune_nomov_thresholds,
-        manual_low_confidence_threshold=manual_thresholds[0],
-        manual_high_confidence_threshold=manual_thresholds[1],
+        expected_noMov_ratio=expected_noMov_ratio,
+        auto_tune_thresholds=auto_tune_thresholds,
+        manual_low_threshold=manual_thresholds[0],
+        manual_high_threshold=manual_thresholds[1],
     )
 
     # -------------------------
@@ -758,8 +681,8 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser(prog="CNN Training", description="Fine-tune ConvNeXt")
     argparser.add_argument("-d", "--model_name", type=str, default=default_model_name.value, help="se Enums")
     argparser.add_argument("-e", "--num_epochs", type=int, default=default_num_epochs, help="Number of training epochs")
-    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for 3 class classification (used when auto_tune_nomov_thresholds is False)")
-    argparser.add_argument("-r", "--expected_nomov_ratio", type=float, default=default_expected_nomov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
+    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for 3 class classification (used when auto_tune_thresholds is False)")
+    argparser.add_argument("-r", "--expected_noMov_ratio", type=float, default=default_expected_noMov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
     argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
     argparser.add_argument("--backbone_lr_scale", type=float, default=backbone_lr_scale, help="Scale factor for backbone LR relative to base LR (e.g. 0.1)")
     args = argparser.parse_args()
@@ -778,14 +701,14 @@ if __name__ == '__main__':
         elif args.manual_thresholds[0] >= args.manual_thresholds[1]:
             raise ValueError(f"Manual low confidence threshold must be less than high confidence threshold. Got {args.manual_thresholds}")
         else:
-            auto_tune_nomov_thresholds = False
+            auto_tune_thresholds = False
             print(f"Using manual thresholds: low={args.manual_thresholds[0]:.4f}, high={args.manual_thresholds[1]:.4f}")
 
-    # Validate expected_nomov_ratio and adjust auto-tuning strategy if needed
-    if args.expected_nomov_ratio < 0.0 or args.expected_nomov_ratio > 1.0:
-        raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {args.expected_nomov_ratio}")
-    elif args.expected_nomov_ratio > 0.0 and args.expected_nomov_ratio < 1.0:
-        auto_tune_nomov_thresholds = True
+    # Validate expected_noMov_ratio and adjust auto-tuning strategy if needed
+    if args.expected_noMov_ratio < 0.0 or args.expected_noMov_ratio > 1.0:
+        raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {args.expected_noMov_ratio}")
+    elif args.expected_noMov_ratio > 0.0 and args.expected_noMov_ratio < 1.0:
+        auto_tune_thresholds = True
         threshold_tuning_strategy = "prior_quantile"
 
     # Validate backbone_lr_scale
@@ -817,9 +740,9 @@ if __name__ == '__main__':
     setup_train_and_evaluate(
         model_name,
         args.num_epochs,
-        args.expected_nomov_ratio,
+        args.expected_noMov_ratio,
         args.num_stages_to_unfreeze,
         (args.manual_thresholds[0], args.manual_thresholds[1]),
-        auto_tune_nomov_thresholds,
+        auto_tune_thresholds,
         args.backbone_lr_scale,
     )

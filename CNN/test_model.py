@@ -109,8 +109,8 @@ class TestingModel:
             self.model_name,
             backtest_3_class_loader,
             self.transform,
-            manual_low_confidence_threshold=low,
-            manual_high_confidence_threshold=high
+            manual_low_threshold=low,
+            manual_high_threshold=high
             )
 
 

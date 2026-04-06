@@ -8,7 +8,7 @@ def make_model(model_name, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze
         model_maker.setup_train_and_evaluate(
             model_name=model_name,
             num_epochs=num_epochs,
-            expected_nomov_ratio=nomov_ratio,
+            expected_noMov_ratio=nomov_ratio,
             num_stages_to_unfreeze=num_stages_to_unfreeze,
             manual_thresholds=manual_thresholds)
 
@@ -112,7 +112,7 @@ if __name__ == '__main__':
 
     all_TIs_testing_model.image_to_prediction()
 
-    # all_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    all_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
     # no_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
     # no_BB_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
     # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
