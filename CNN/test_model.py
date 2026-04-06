@@ -93,25 +93,8 @@ class TestingModel:
 
         return prediction
 
-    def backtesting_dataset_to_predictions(
-        self, new_low=default_low, new_high=default_high
-            ):
-        backtest_3_class_dataset = ImageFolder(root=f"datasets/{self.model_name}/backtesting", transform=self.transform)
-        backtest_3_class_loader = torch.utils.data.DataLoader(
-            backtest_3_class_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
-
-        low = new_low
-        high = new_high
-
-        model_maker.backtest_3_class(
-            self.model,
-            self.device,
-            self.model_name,
-            backtest_3_class_loader,
-            self.transform,
-            manual_low_threshold=low,
-            manual_high_threshold=high
-            )
+    def backtesting_dataset_to_predictions(self):
+        model_maker.backtest_3_class(self.model)
 
 
 if __name__ == '__main__':

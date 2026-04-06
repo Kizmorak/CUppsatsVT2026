@@ -2,15 +2,16 @@ import model_maker
 import test_model
 
 
-def make_model(model_name, num_epochs, nomov_ratio=(0.8), num_stages_to_unfreeze=(1), manual_thresholds=(0, 0)):
+def make_model(model_name, num_epochs=(10), nomov_ratio=(0.0), num_stages_to_unfreeze=(1), thresholds=(0, 0)):
     # Make models
     try:
-        model_maker.setup_train_and_evaluate(
+        new_model = model_maker.ModelMaker(
             model_name=model_name,
             num_epochs=num_epochs,
-            expected_noMov_ratio=nomov_ratio,
+            noMov_ratio=nomov_ratio,
             num_stages_to_unfreeze=num_stages_to_unfreeze,
-            manual_thresholds=manual_thresholds)
+            thresholds=thresholds)
+        return new_model
 
     except Exception as e:
         print(f"Error occurred while training and evaluating model: {model_name}, {num_epochs} epochs: {e}")
@@ -55,41 +56,41 @@ if __name__ == '__main__':
     #         model_name=model_maker.ModelNames.ALL_TIs,
     #         num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_TIs,
-    #         num_epochs=8
-    #         )
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_TIs,
+            num_epochs=8
+            )
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_BB,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_BB,
+            num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_BB_NO_OBV,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_BB_NO_OBV,
+            num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_BB_NO_RSI,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_BB_NO_RSI,
+            num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_OBV,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_OBV,
+            num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_RSI,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_RSI,
+            num_epochs=8)
 
-    # for i in range(1):
-    #     make_model(
-    #         model_name=model_maker.ModelNames.NO_RSI_NO_OBV,
-    #         num_epochs=8)
+    for i in range(1):
+        make_model(
+            model_name=model_maker.ModelNames.NO_RSI_NO_OBV,
+            num_epochs=8)
 
     # -------------------------
     # Testing the models
@@ -101,7 +102,7 @@ if __name__ == '__main__':
     low_threshold = 0.1
     high_threshold = 0.9
 
-    all_TIs_testing_model = test_model.TestingModel("all_TIs")
+    # all_TIs_testing_model = test_model.TestingModel("all_TIs")
     # no_TIs_testing_model = test_model.TestingModel("No_TIs")
     # no_BB_testing_model = test_model.TestingModel("No_BB")
     # no_BB_NO_OBV_testing_model = test_model.TestingModel("No_BB_No_OBV")
@@ -110,9 +111,9 @@ if __name__ == '__main__':
     # no_RSI_testing_model = test_model.TestingModel("No_RSI")
     # no_RSI_NO_OBV_testing_model = test_model.TestingModel("No_RSI_No_OBV")
 
-    all_TIs_testing_model.image_to_prediction()
+    # all_TIs_testing_model.image_to_prediction()
 
-    all_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    # all_TIs_testing_model.backtesting_dataset_to_predictions()
     # no_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
     # no_BB_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
     # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
