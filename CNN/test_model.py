@@ -1,11 +1,12 @@
 import timm
 import torch
-import model_maker
+from datetime import datetime, timedelta
 from torchvision import transforms
 from PIL import Image
 from pathlib import Path
 import csv
-from datetime import datetime, timedelta
+import os
+from torch.utils.data import Dataset
 
 
 # -------------------------
@@ -23,6 +24,10 @@ default_high = 0.9
 class TestingModel:
 
     def __init__(self, model_name=None):
+
+        # --------------------------
+        # Initialization: set up untrained model, set up device, load pretrained weights
+        # --------------------------
         self.model_name = model_name
         self.model_path = f"final_models/{self.model_name}_model.pth"
 
@@ -52,11 +57,12 @@ class TestingModel:
 
         print(f"Model loaded from: {self.model_path}")
 
-        # Define the mean and std for normalization
+        # --------------------------
+        # Set up image transformations (same as training) and dataloaders for backtesting
+        # --------------------------
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
 
-        # Define the image transformations
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
@@ -64,15 +70,49 @@ class TestingModel:
         ])
 
         # Set up datasets and dataloaders for backtesting
-        self.backtest_dataset = model_maker.ImageFolder(root=f"datasets/{self.model_name}/backtesting", transform=self.transform)
-        self.backtest_loader = torch.utils.data.DataLoader(self.backtest_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)  
+        self.backtest_dataset = BacktestingDataset(
+            root_dir=f"datasets/{self.model_name}/backtesting",
+            transform=self.transform
+        )
+
+        self.backtest_loader = torch.utils.data.DataLoader(
+            self.backtest_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers
+        )
+
+        # --------------------------
+        # Load thresholds for open-set classification (buy/sell/nomov)
+        # --------------------------
+        self.low_threshold = default_low
+        self.high_threshold = default_high
+
+        # Load thresholds from all_thresholds.txt if available
+        with open("final_models/all_thresholds.txt", "r") as f:
+            lines = f.readlines()
+            for i in range(0, len(lines), 3):
+                model_line = lines[i].strip()
+                low_line = lines[i + 1].strip()
+                high_line = lines[i + 2].strip()
+
+                if model_line.startswith(f"{self.model_name}-"):
+                    self.low_threshold = float(low_line.split(":")[1].strip())
+                    self.high_threshold = float(high_line.split(":")[1].strip())
+                    print(
+                        f"Using thresholds for {self.model_name}: "
+                        f"Low={self.low_threshold:.4f}, High={self.high_threshold:.4f}"
+                    )
+                    break
+            else:
+                print(f"No thresholds found for {self.model_name} in all_thresholds.txt. Using default thresholds.")
+                self.low_threshold = default_low
+                self.high_threshold = default_high
 
     # -------------------------
     # Prediction functions
     # -------------------------
-    def image_to_prediction(self, new_low=default_low, new_high=default_high):
-        low = new_low
-        high = new_high
+    def image_to_prediction(self):
 
         folder = Path("inputGraph/" + self.model_name + "/")
         img_path = next(folder.glob("*.png"))
@@ -86,9 +126,9 @@ class TestingModel:
             output = self.model(tensor)
             prob = torch.sigmoid(output).item()
 
-        if prob <= low:
+        if prob <= self.low_threshold:
             prediction = "sell"
-        elif prob >= high:
+        elif prob >= self.high_threshold:
             prediction = "buy"
         else:
             prediction = ""
@@ -102,34 +142,18 @@ class TestingModel:
     # Evaluation on nomov_val (3 class)
     # -------------------------
     def backtesting_dataset_to_predictions(self):
-        nomov_probs = []
-        nomov_labels = []
+        nomov_probs_and_paths = []
 
-        name_to_open_label = {
-            "downMovement": 0,
-            "upMovement": 1,
-            "noMovement": 2,
-        }
-
-        # Map dataset label index -> open-set label, and reverse
-        val_to_open = {
-            idx: name_to_open_label[name]
-            for idx, name in enumerate(self.backtest_dataset.classes)
-        }
-
-        def open_label_to_name(label: int) -> str:
-            name = {v: k for k, v in name_to_open_label.items()}
-            return name.get(label, "Unknown")
-
-        # Get model probabilities on the nomov_val set and map to 3 class labels
         with torch.no_grad():
-            for images, labels in self.backtest_loader:
+            for images, paths in self.backtest_loader:
                 images = images.to(self.device)
                 outputs = self.model(images)
                 probs = torch.sigmoid(outputs).squeeze(1).flatten()
 
-                nomov_probs.extend(probs.cpu().tolist())
-                nomov_labels.extend(val_to_open[int(lbl)] for lbl in labels)
+                nomov_probs_and_paths.extend([
+                    (float(prob.item()), path)
+                    for prob, path in zip(probs, paths)
+                ])
 
         def predict_open_set(prob, low, high):
             if prob <= low:
@@ -138,35 +162,24 @@ class TestingModel:
                 return 1
             return 2
 
-        def predict_binary(prob, threshold):
-            return 1 if prob >= threshold else 0
+        def predict_binary(prob, binary_threshold=0.5):
+            return 1 if prob >= binary_threshold else 0
 
         print("\nBacktesting summary:")
-        print(f"Total samples: {len(nomov_probs)}")
+        print(f"Total samples: {len(nomov_probs_and_paths)}.")
 
-        with open("final_models/all_thresholds.txt", "r") as f:
-            lines = f.readlines()
-            for i in range(0, len(lines), 3):
-                model_line = lines[i].strip()
-                low_line = lines[i + 1].strip()
-                high_line = lines[i + 2].strip()
+        backtest_3_class_preds_and_paths = [
+            (predict_open_set(prob, self.low_threshold, self.high_threshold), path)
+            for prob, path in nomov_probs_and_paths
+        ]
+        backtest_2_class_preds_and_paths = [
+            (predict_binary(prob), path)
+            for prob, path in nomov_probs_and_paths
+        ]
 
-                if model_line.startswith(f"{self.model_name}-"):
-                    low_threshold = float(low_line.split(":")[1].strip())
-                    high_threshold = float(high_line.split(":")[1].strip())
-                    print(f"Using thresholds for {self.model_name}: Low={low_threshold:.4f}, High={high_threshold:.4f}")
-                    break
-            else:
-                print(f"No thresholds found for {self.model_name} in all_thresholds.txt. Using default thresholds.")
-                low_threshold = default_low
-                high_threshold = default_high
-
-        backtest_3_class_preds = [predict_open_set(prob, low_threshold, high_threshold) for prob in nomov_probs]
-        backtest_2_class_preds = [predict_binary(prob, 0.5) for prob in nomov_probs]
-
-    # -------------------------
-    # Save predictions CSV file method (for backtesting)
-    # -------------------------
+        # -------------------------
+        # Save predictions CSV file methods (for backtesting)
+        # -------------------------
         def extract_datetime_from_path(path):
             stem = Path(path).stem
             try:
@@ -177,7 +190,7 @@ class TestingModel:
             plus = dt + timedelta(minutes=31)
             return plus.strftime("%Y-%m-%d %H:%M:00")
 
-        def save_csv_predictions(backtest_dataset, model_name, preds):
+        def save_3_class_csv_predictions(model_name, backtest_3_class_preds_and_paths):
             out_path = Path(f"csv_files/{model_name}_Backtesting_predictions.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -186,23 +199,21 @@ class TestingModel:
                 writer.writerow(["time", "target"])
 
                 skipped = 0
-                for (path, _), pred in zip(backtest_dataset.samples, preds):
+                for pred, path in backtest_3_class_preds_and_paths:
                     if pred == 2:  # NOMOV
                         skipped += 1
                         continue
 
                     target = 1 if pred == 0 else 0
-                    t = extract_datetime_from_path(path)
-                    if t is None:
+                    time = extract_datetime_from_path(path)
+                    if time is None:
                         continue
 
-                    writer.writerow([t, target])
+                    writer.writerow([time, target])
 
             print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
 
-        save_csv_predictions(self.backtest_dataset, self.model_name, backtest_3_class_preds)
-
-        def save_2_class_csv_predictions(backtest_dataset, model_name, preds):
+        def save_2_class_csv_predictions(model_name, backtest_2_class_preds_and_paths):
             out_path = Path(f"csv_files/{model_name}_Backtesting_predictions_2_class.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -210,17 +221,44 @@ class TestingModel:
                 writer = csv.writer(f)
                 writer.writerow(["time", "target"])
 
-                for (path, _), pred in zip(backtest_dataset.samples, preds):
+                for pred, path in backtest_2_class_preds_and_paths:
                     target = 1 if pred == 0 else 0
-                    t = extract_datetime_from_path(path)
-                    if t is None:
+                    time = extract_datetime_from_path(path)
+                    if time is None:
                         continue
 
-                    writer.writerow([t, target])
+                    writer.writerow([time, target])
 
             print("Saved 2-class CSV.")
 
-        save_2_class_csv_predictions(self.backtest_dataset, self.model_name, backtest_2_class_preds)
+        save_3_class_csv_predictions(self.model_name, backtest_3_class_preds_and_paths)
+        save_2_class_csv_predictions(self.model_name, backtest_2_class_preds_and_paths)
+
+
+class BacktestingDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+
+        self.image_paths = [
+            os.path.join(root_dir, f)
+            for f in os.listdir(root_dir)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ]
+
+        self.image_paths.sort()  # keep time order
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        path = self.image_paths[idx]
+        image = Image.open(path).convert("RGB")
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, path
 
 
 if __name__ == '__main__':
