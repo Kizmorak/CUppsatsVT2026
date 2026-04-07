@@ -77,8 +77,6 @@ class ModelMaker:
             self.backtest_2_class_loader,
             self.fix_thresholds_dataset,
             self.fix_thresholds_loader,
-            self.backtest_dataset,
-            self.backtest_loader
         ) = dataset_setup(self)
         self.model = model_setup(self)
         self.optimizer = optimizer_setup(self)
@@ -147,8 +145,7 @@ def dataset_setup(self):
     val_dataset = ImageFolder(root=f"datasets/{self.model_name}/val", transform=self.eval_transform)
     backtest_2_class_dataset = ImageFolder(root=f"datasets/{self.model_name}/threshold_estimationAB", transform=self.eval_transform)
     fix_thresholds_dataset = ImageFolder(root=f"datasets/{self.model_name}/threshold_estimation", transform=self.eval_transform)
-    backtest_dataset = ImageFolder(root=f"datasets/{self.model_name}/backtesting", transform=self.eval_transform)
-
+    
     # Balanced sampler
     targets = np.array(train_dataset.targets)
     class_counts = np.bincount(targets)
@@ -167,8 +164,7 @@ def dataset_setup(self):
         backtest_2_class_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
     fix_thresholds_loader = DataLoader(
         fix_thresholds_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
-    backtest_loader = DataLoader(backtest_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)
-    return train_dataset, train_loader, val_loader, backtest_2_class_dataset, backtest_2_class_loader, fix_thresholds_dataset, fix_thresholds_loader, backtest_dataset, backtest_loader
+    return train_dataset, train_loader, val_loader, backtest_2_class_dataset, backtest_2_class_loader, fix_thresholds_dataset, fix_thresholds_loader
 
 
 # -------------------------
@@ -370,29 +366,6 @@ def backtest_2_class(self):
     cm_val = confusion_matrix(backtest_2_class_labels, backtest_2_class_preds)
     print("\nValidation (A/B) confusion matrix:")
     print(cm_val)
-
-# -------------------------
-# Save predictions CSV file method (for backtesting)
-# -------------------------
-    def save_2_class_csv_predictions(backtest_dataset, model_name, preds):
-        out_path = Path(f"csv_files/{model_name}_Backtesting_predictions_2_class.csv")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(out_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["time", "target"])
-
-            for (path, _), pred in zip(backtest_dataset.samples, preds):
-                target = 1 if pred == 0 else 0
-                t = extract_datetime_from_path(path)
-                if t is None:
-                    continue
-
-                writer.writerow([t, target])
-
-        print("Saved 2-class CSV.")
-
-    save_2_class_csv_predictions(self.backtest_2_class_dataset, self.model_name, backtest_2_class_preds)
 
 
 # -------------------------
@@ -622,93 +595,13 @@ def fix_thresholds(self):
         out_path = Path(f"final_models/{self.model_name}_model.pth")
         out_path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(self.model.state_dict(), out_path)
+        with open("final_models/all_thresholds.txt", "w") as f:
+            f.write(f"{self.model_name}-\n")
+            f.write(f"Low: {low_threshold:.4f}\n")
+            f.write(f"High: {high_threshold:.4f}\n")
     save_model(self)
 
     return low_threshold, high_threshold
-
-
-# -------------------------
-# Evaluation on nomov_val (3 class)
-# -------------------------
-def backtest_3_class(self):
-
-    nomov_probs = []
-    nomov_labels = []
-
-    name_to_open_label = {
-        "downMovement": 0,
-        "upMovement": 1,
-        "noMovement": 2,
-    }
-
-    # Map dataset label index -> open-set label, and reverse
-    val_to_open = {
-        idx: name_to_open_label[name]
-        for idx, name in enumerate(self.backtest_dataset.classes)
-    }
-
-    def open_label_to_name(label: int) -> str:
-        name = {v: k for k, v in name_to_open_label.items()}
-        return name.get(label, "Unknown")
-
-    # Get model probabilities on the nomov_val set and map to 3 class labels
-    with torch.no_grad():
-        for images, labels in self.backtest_loader:
-            images = images.to(self.device)
-            outputs = self.model(images)
-            probs = torch.sigmoid(outputs).squeeze(1).flatten()
-
-            nomov_probs.extend(probs.cpu().tolist())
-            nomov_labels.extend(val_to_open[int(lbl)] for lbl in labels)
-
-    def predict_open_set(prob, low, high):
-        if prob <= low:
-            return 0
-        if prob >= high:
-            return 1
-        return 2
-
-    print("\nBacktesting summary:")
-    print(f"Total samples: {len(nomov_probs)}")
-
-# -------------------------
-# Save predictions CSV file method (for backtesting)
-# -------------------------
-    def save_csv_predictions(backtest_dataset, model_name, preds):
-        out_path = Path(f"csv_files/{model_name}_Backtesting_predictions.csv")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(out_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["time", "target"])
-
-            skipped = 0
-            for (path, _), pred in zip(backtest_dataset.samples, preds):
-                if pred == 2:  # NOMOV
-                    skipped += 1
-                    continue
-
-                target = 1 if pred == 0 else 0
-                t = extract_datetime_from_path(path)
-                if t is None:
-                    continue
-
-                writer.writerow([t, target])
-
-        print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
-
-    save_csv_predictions(self.backtest_dataset, self.model_name, nomov_probs)
-
-
-def extract_datetime_from_path(path):
-    stem = Path(path).stem
-    try:
-        dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
-    except ValueError:
-        print(f"Bad filename format: {stem}")
-        return None
-    plus = dt + timedelta(minutes=31)
-    return plus.strftime("%Y-%m-%d %H:%M:00")
 
 
 if __name__ == '__main__':

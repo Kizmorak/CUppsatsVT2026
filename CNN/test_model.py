@@ -2,9 +2,10 @@ import timm
 import torch
 import model_maker
 from torchvision import transforms
-from torchvision.datasets import ImageFolder
 from PIL import Image
 from pathlib import Path
+import csv
+from datetime import datetime, timedelta
 
 
 # -------------------------
@@ -62,6 +63,10 @@ class TestingModel:
             transforms.Normalize(mean, std)
         ])
 
+        # Set up datasets and dataloaders for backtesting
+        self.backtest_dataset = model_maker.ImageFolder(root=f"datasets/{self.model_name}/backtesting", transform=self.transform)
+        self.backtest_loader = torch.utils.data.DataLoader(self.backtest_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_workers)  
+
     # -------------------------
     # Prediction functions
     # -------------------------
@@ -93,8 +98,129 @@ class TestingModel:
 
         return prediction
 
+    # -------------------------
+    # Evaluation on nomov_val (3 class)
+    # -------------------------
     def backtesting_dataset_to_predictions(self):
-        model_maker.backtest_3_class(self.model)
+        nomov_probs = []
+        nomov_labels = []
+
+        name_to_open_label = {
+            "downMovement": 0,
+            "upMovement": 1,
+            "noMovement": 2,
+        }
+
+        # Map dataset label index -> open-set label, and reverse
+        val_to_open = {
+            idx: name_to_open_label[name]
+            for idx, name in enumerate(self.backtest_dataset.classes)
+        }
+
+        def open_label_to_name(label: int) -> str:
+            name = {v: k for k, v in name_to_open_label.items()}
+            return name.get(label, "Unknown")
+
+        # Get model probabilities on the nomov_val set and map to 3 class labels
+        with torch.no_grad():
+            for images, labels in self.backtest_loader:
+                images = images.to(self.device)
+                outputs = self.model(images)
+                probs = torch.sigmoid(outputs).squeeze(1).flatten()
+
+                nomov_probs.extend(probs.cpu().tolist())
+                nomov_labels.extend(val_to_open[int(lbl)] for lbl in labels)
+
+        def predict_open_set(prob, low, high):
+            if prob <= low:
+                return 0
+            if prob >= high:
+                return 1
+            return 2
+
+        def predict_binary(prob, threshold):
+            return 1 if prob >= threshold else 0
+
+        print("\nBacktesting summary:")
+        print(f"Total samples: {len(nomov_probs)}")
+
+        with open("final_models/all_thresholds.txt", "r") as f:
+            lines = f.readlines()
+            for i in range(0, len(lines), 3):
+                model_line = lines[i].strip()
+                low_line = lines[i + 1].strip()
+                high_line = lines[i + 2].strip()
+
+                if model_line.startswith(f"{self.model_name}-"):
+                    low_threshold = float(low_line.split(":")[1].strip())
+                    high_threshold = float(high_line.split(":")[1].strip())
+                    print(f"Using thresholds for {self.model_name}: Low={low_threshold:.4f}, High={high_threshold:.4f}")
+                    break
+            else:
+                print(f"No thresholds found for {self.model_name} in all_thresholds.txt. Using default thresholds.")
+                low_threshold = default_low
+                high_threshold = default_high
+
+        backtest_3_class_preds = [predict_open_set(prob, low_threshold, high_threshold) for prob in nomov_probs]
+        backtest_2_class_preds = [predict_binary(prob, 0.5) for prob in nomov_probs]
+
+    # -------------------------
+    # Save predictions CSV file method (for backtesting)
+    # -------------------------
+        def extract_datetime_from_path(path):
+            stem = Path(path).stem
+            try:
+                dt = datetime.strptime(stem, "%Y-%m-%d_%H%M")
+            except ValueError:
+                print(f"Bad filename format: {stem}")
+                return None
+            plus = dt + timedelta(minutes=31)
+            return plus.strftime("%Y-%m-%d %H:%M:00")
+
+        def save_csv_predictions(backtest_dataset, model_name, preds):
+            out_path = Path(f"csv_files/{model_name}_Backtesting_predictions.csv")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(out_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["time", "target"])
+
+                skipped = 0
+                for (path, _), pred in zip(backtest_dataset.samples, preds):
+                    if pred == 2:  # NOMOV
+                        skipped += 1
+                        continue
+
+                    target = 1 if pred == 0 else 0
+                    t = extract_datetime_from_path(path)
+                    if t is None:
+                        continue
+
+                    writer.writerow([t, target])
+
+            print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
+
+        save_csv_predictions(self.backtest_dataset, self.model_name, backtest_3_class_preds)
+
+        def save_2_class_csv_predictions(backtest_dataset, model_name, preds):
+            out_path = Path(f"csv_files/{model_name}_Backtesting_predictions_2_class.csv")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(out_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["time", "target"])
+
+                for (path, _), pred in zip(backtest_dataset.samples, preds):
+                    target = 1 if pred == 0 else 0
+                    t = extract_datetime_from_path(path)
+                    if t is None:
+                        continue
+
+                    writer.writerow([t, target])
+
+            print("Saved 2-class CSV.")
+
+        save_2_class_csv_predictions(self.backtest_dataset, self.model_name, backtest_2_class_preds)
 
 
 if __name__ == '__main__':

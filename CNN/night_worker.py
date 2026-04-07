@@ -56,41 +56,41 @@ if __name__ == '__main__':
     #         model_name=model_maker.ModelNames.ALL_TIs,
     #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_TIs,
-            num_epochs=8
-            )
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_TIs,
+    #         num_epochs=8
+    #         )
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_BB,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_BB,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_BB_NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_BB_NO_OBV,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_BB_NO_RSI,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_BB_NO_RSI,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_OBV,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_RSI,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_RSI,
+    #         num_epochs=8)
 
-    for i in range(1):
-        make_model(
-            model_name=model_maker.ModelNames.NO_RSI_NO_OBV,
-            num_epochs=8)
+    # for i in range(1):
+    #     make_model(
+    #         model_name=model_maker.ModelNames.NO_RSI_NO_OBV,
+    #         num_epochs=8)
 
     # -------------------------
     # Testing the models
@@ -102,22 +102,22 @@ if __name__ == '__main__':
     low_threshold = 0.1
     high_threshold = 0.9
 
-    # all_TIs_testing_model = test_model.TestingModel("all_TIs")
-    # no_TIs_testing_model = test_model.TestingModel("No_TIs")
-    # no_BB_testing_model = test_model.TestingModel("No_BB")
-    # no_BB_NO_OBV_testing_model = test_model.TestingModel("No_BB_No_OBV")
-    # no_BB_NO_RSI_testing_model = test_model.TestingModel("No_BB_No_RSI")
-    # no_OBV_testing_model = test_model.TestingModel("No_OBV")
-    # no_RSI_testing_model = test_model.TestingModel("No_RSI")
-    # no_RSI_NO_OBV_testing_model = test_model.TestingModel("No_RSI_No_OBV")
+    all_TIs_testing_model = test_model.TestingModel("all_TIs")
+    no_TIs_testing_model = test_model.TestingModel("No_TIs")
+    no_BB_testing_model = test_model.TestingModel("No_BB")
+    no_BB_NO_OBV_testing_model = test_model.TestingModel("No_BB_No_OBV")
+    no_BB_NO_RSI_testing_model = test_model.TestingModel("No_BB_No_RSI")
+    no_OBV_testing_model = test_model.TestingModel("No_OBV")
+    no_RSI_testing_model = test_model.TestingModel("No_RSI")
+    no_RSI_NO_OBV_testing_model = test_model.TestingModel("No_RSI_No_OBV")
 
     # all_TIs_testing_model.image_to_prediction()
 
-    # all_TIs_testing_model.backtesting_dataset_to_predictions()
-    # no_TIs_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_BB_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_RSI_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
-    # no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions(low_threshold, high_threshold)
+    all_TIs_testing_model.backtesting_dataset_to_predictions()
+    no_TIs_testing_model.backtesting_dataset_to_predictions()
+    no_BB_testing_model.backtesting_dataset_to_predictions()
+    no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions()
+    no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions()
+    no_OBV_testing_model.backtesting_dataset_to_predictions()
+    no_RSI_testing_model.backtesting_dataset_to_predictions()
+    no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions()
