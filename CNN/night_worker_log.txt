@@ -1,0 +1,77 @@
+No_TIs_09_13-56
+Using device: cpu
+Optimizer setup: base_lr=1.00e-04, backbone_lr=1.00e-05, head_params=4, backbone_params=112
+
+2026-04-09 13:56:44
+--------------------------------------------------
+Configuration summary:
+--------------------------------------------------
+Model name: No_TIs
+Max number of epochs: 2
+Base learning rate: 0.0001
+Backbone LR scale: 0.1
+Auto-tuning NOMOV thresholds
+Number of stages to unfreeze for fine-tuning: 3
+--------------------------------------------------
+Epoch 1, Loss: 0.6888, Accuracy: 0.5364, Macro F1: 0.5171
+Epoch 2, Loss: 0.6363, Accuracy: 0.4929, Macro F1: 0.4885
+
+
+--------------------------------------------------
+Training Validation summary:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement']
+[[93 11]
+ [80  7]]
+
+Total samples: 191
+Correct predictions: 100
+Accuracy: 0.5236
+Average confidence: 0.6752
+Macro F1: 0.4024
+Balanced Accuracy: 0.4873
+
+
+--------------------------------------------------
+Threshold setting summary:
+--------------------------------------------------
+No manual thresholds applied. Thresholds will be auto-tuned based on noMov_ratio and/or automatic threshold estimation.
+
+Threshold auto-tune (sweep): objective=macro_f1, best_score=0.3329, best_balanced_acc=0.3416, best_low=0.1866, best_high=0.7587
+Thresholds used: low=0.1866, high=0.7587
+
+
+--------------------------------------------------
+Final evaluation on threshold_estimation set:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement', 'noMovement']
+[[  12    0   92]
+ [   3    0   84]
+ [ 123   18 1418]]
+
+Total samples: 1750
+Correct predictions: 1430
+High confidence samples: 18
+Low confidence samples: 138
+Average confidence: 0.3895
+Uncertain samples: 1594
+
+3 class confidence stats by predicted class:
+downMovement    | n= 138 | min=0.0790 | mean=0.1529 | max=0.1861
+upMovement      | n=  18 | min=0.7610 | mean=0.8020 | max=0.8589
+noMovement      | n=1594 | min=0.1868 | mean=0.4053 | max=0.7563
+
+3 class confidence stats by true class:
+downMovement    | n= 104 | mean_prob=0.3354 | std_prob=0.1266 | recall=0.1154
+upMovement      | n=  87 | mean_prob=0.3486 | std_prob=0.1150 | recall=0.0000
+noMovement      | n=1559 | mean_prob=0.3954 | std_prob=0.1591 | recall=0.9096
+
+Balanced accuracy (macro recall): 0.3416
+Macro F1: 0.3329
+
+3 class adjusted metrics:
+downMovement    | support= 104 | precision=0.0870 | recall=0.1154 | f1=0.0992
+upMovement      | support=  87 | precision=0.0000 | recall=0.0000 | f1=0.0000
+noMovement      | support=1559 | precision=0.8896 | recall=0.9096 | f1=0.8995
+
+A/B subset accuracy (ignoring NOMOV): 0.0628 (n=191)

@@ -7,6 +7,8 @@ from pathlib import Path
 import csv
 import os
 from torch.utils.data import Dataset
+import custom_tee
+import sys
 
 
 # -------------------------
@@ -19,6 +21,8 @@ batch_size_gpu = 16
 
 default_low = 0.1
 default_high = 0.9
+
+sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
 
 
 class TestingModel:
