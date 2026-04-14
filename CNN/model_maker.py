@@ -4,7 +4,7 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision.datasets import ImageFolder
-from sklearn.metrics import confusion_matrix, f1_score, balanced_accuracy_score
+from sklearn.metrics import confusion_matrix, f1_score, balanced_accuracy_score, accuracy_score
 import numpy as np
 import argparse
 from enum import Enum
@@ -15,19 +15,22 @@ from PIL import Image
 import custom_tee
 import sys
 import copy
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 
 sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
+sys.stdout.flush()
+# to avoid loosing too much log info on crashes
 
 
 class ModelNames(Enum):
     ALL_TIs = "all_TIs"
     NO_TIs = "No_TIs"
-    NO_BB = "No_BB"
-    NO_BB_NO_RSI = "No_BB_No_RSI"
-    NO_BB_NO_OBV = "No_BB_No_OBV"
-    NO_RSI = "No_RSI"
-    NO_RSI_NO_OBV = "No_RSI_No_OBV"
+    OBV = "OBV"
+    RSI = "RSI"
+    BB = "BB"
     NO_OBV = "No_OBV"
+    NO_TIs_5 = "No_TIs_5"
 
     def __str__(self):
         return str(self.value)
@@ -84,8 +87,9 @@ workers_cpu = 0
 workers_gpu = 4
 batch_size_cpu = 8
 batch_size_gpu = 16
-base_lr = 1e-4
-backbone_lr_scale = 0.1
+default_base_lr = 3e-5
+default_backbone_lr_scale = 0.1
+weight_decay = 1e-2
 
 # Auto-tuning options for thresholding
 auto_tune_thresholds = True
@@ -102,8 +106,8 @@ class ModelMaker:
         noMov_ratio=0.0,
         num_stages_to_unfreeze=1,
         thresholds=(0, 0),
-        base_lr=base_lr,
-        backbone_lr_scale=backbone_lr_scale,
+        base_lr=default_base_lr,
+        backbone_lr_scale=default_backbone_lr_scale,
     ):
         self.model_name = model_name
         self.max_epochs = max_epochs
@@ -111,7 +115,7 @@ class ModelMaker:
         self.num_stages_to_unfreeze = num_stages_to_unfreeze
         self.thresholds = thresholds
         self.auto_tune_thresholds = auto_tune_thresholds
-        self.lr = base_lr
+        self.base_lr = base_lr
         self.backbone_lr_scale = backbone_lr_scale
         self.device, self.batch_size, self.num_workers = device_spec_setup()
         self.train_transform, self.eval_transform = transforms_setup()
@@ -126,8 +130,9 @@ class ModelMaker:
         self.optimizer = optimizer_setup(self)
         self.scheduler = scheduler_setup(self)
         print_summary(self)
-
+        visualize_embeddings(self, pre_training=True)
         train_model(self)
+        visualize_embeddings(self, pre_training=False)
         tune_and_evaluate_model(self)
         save_model(self)
 
@@ -240,7 +245,6 @@ def model_setup(self):
     model.reset_classifier(1)
     model.to(self.device)
 
-    # Freeze all layers except the head
     for p in model.parameters():
         p.requires_grad = False
 
@@ -269,7 +273,6 @@ def model_setup(self):
 # -------------------------
 # Define the optimizer (AdamW is commonly used for training vision models)
 def optimizer_setup(self):
-    weight_decay = 0.05
     trainable_named_params = [(n, p) for n, p in self.model.named_parameters() if p.requires_grad]
     if not trainable_named_params:
         raise ValueError("No trainable parameters found. Check fine-tuning stage configuration.")
@@ -281,14 +284,14 @@ def optimizer_setup(self):
 
     param_groups = []
     if backbone_params:
-        param_groups.append({"params": backbone_params, "lr": self.lr * self.backbone_lr_scale})
+        param_groups.append({"params": backbone_params, "lr": self.base_lr * self.backbone_lr_scale})
     if head_params:
-        param_groups.append({"params": head_params, "lr": self.lr})
+        param_groups.append({"params": head_params, "lr": self.base_lr})
 
     optimizer = torch.optim.AdamW(param_groups, weight_decay=weight_decay)
     print(
-        f"Optimizer setup: base_lr={self.lr:.2e}, backbone_lr={self.lr * self.backbone_lr_scale:.2e}, "
-        f"head_params={len(head_params)}, backbone_params={len(backbone_params)}"
+        f"Optimizer setup: base_lr={self.base_lr:.2e}, backbone_lr={self.base_lr * self.backbone_lr_scale:.2e}, "
+        f"head_params={len(head_params)}, backbone_params={len(backbone_params)}, weight_decay={weight_decay:.2e}"
     )
     return optimizer
 
@@ -315,8 +318,8 @@ def print_summary(self):
     print("-" * 50)
     print(f"Model name: {self.model_name}")
     print(f"Max number of epochs: {self.max_epochs}")
-    print(f"Base learning rate: {base_lr}")
-    print(f"Backbone LR scale: {backbone_lr_scale}")
+    print(f"Base learning rate: {self.base_lr}")
+    print(f"Backbone LR scale: {self.backbone_lr_scale}")
     if self.auto_tune_thresholds:
         print("Auto-tuning NOMOV thresholds")
         if self.noMov_ratio > 0.0 and self.noMov_ratio < 1.0:
@@ -328,42 +331,139 @@ def print_summary(self):
 
 
 # -------------------------
+# Print accuracy and loss plot
+# -------------------------
+def print_2var_plots(self, var_1, var_2, label_1, label_2, title, xlabel, ylabel):
+    # After training, plot the training loss curve
+    model_name_str = str(self.model_name)
+    out_dir = Path("final_models") / model_name_str / "temp"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_title = title.replace(" ", "_")
+    out_path = out_dir / f"{model_name_str}_{safe_title}_plot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+
+    plt.figure()
+    plt.plot(var_1, label=label_1)
+    plt.plot(var_2, label=label_2)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.legend()
+    plt.savefig(out_path)
+    plt.close()
+
+
+# -------------------------
+# Visualize embeddings
+# -------------------------
+def visualize_embeddings(self, pre_training=False):
+    self.model.eval()
+    embeddings = []
+    labels_list = []
+    model_name_str = str(self.model_name)
+
+    with torch.no_grad():
+        for x, y in self.train_loader:
+            feat = self.model.forward_features(x.to(self.device))
+            if feat.ndim == 4:
+                feat = feat.mean(dim=[2, 3])
+            embeddings.append(feat.cpu())
+            labels_list.extend(y.cpu().numpy())
+
+    if not embeddings:
+        print("No embeddings available to plot.")
+        return
+
+    embedding_matrix = torch.cat(embeddings, dim=0).numpy()
+    labels_array = np.array(labels_list)
+
+    if embedding_matrix.shape[0] < 2:
+        print("Not enough samples to plot embeddings.")
+        return
+
+    pca = PCA(n_components=2)
+    embedding_2d = pca.fit_transform(embedding_matrix)
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(
+        embedding_2d[:, 0],
+        embedding_2d[:, 1],
+        c=labels_array,
+        cmap="viridis",
+        s=18,
+        alpha=0.8,
+    )
+    plt.title(f"Embedding PCA: {self.model_name}")
+    plt.xlabel("PCA 1")
+    plt.ylabel("PCA 2")
+    plt.colorbar(scatter, ticks=np.unique(labels_array))
+    plt.tight_layout()
+
+    if pre_training:
+        out_path = Path("final_models") / model_name_str / "temp" / f"{model_name_str}_preembeddings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    else:
+        out_path = Path("final_models") / model_name_str / "temp" / f"{model_name_str}_postembeddings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_path, dpi=200)
+    plt.close()
+    print(f"Saved embedding plot to {out_path}")
+
+
+# -------------------------
 # Training
 # -------------------------
 def train_model(self):
-
     criterion = nn.BCEWithLogitsLoss()
+    history = {
+        "loss": [],
+        "val_loss": [],
+        "accuracy": [],
+        "val_accuracy": [],
+        "macro_f1": [],
+        "val_macro_f1": []
+    }
+
+    # Early stopping variables
+    best_macro_f1 = 0.0
+    best_model_weights = copy.deepcopy(self.model.state_dict())
+    patience = 5
+    epochs_no_improve = 0
 
     # Training loop for binary classification with probability output
     for epoch in range(self.max_epochs):
+        # Training
         self.model.train()
         running_loss = 0.0
-        # Early stopping variables
-        best_macro_f1 = 0.0
-        best_model_weights = copy.deepcopy(self.model.state_dict())
-        patience = 3
-        epochs_no_improve = 0
+        train_labels = []
+        train_preds = []
 
         for images, labels in self.train_loader:
             images = images.to(self.device)
             labels = labels.float().unsqueeze(1).to(self.device)
 
             self.optimizer.zero_grad()
-
-            # Forward pass
             outputs = self.model(images)
             loss = criterion(outputs, labels)
-
-            # Backward pass and optimization
             loss.backward()
             self.optimizer.step()
 
             running_loss += loss.item()
 
-        avg_loss = running_loss / len(self.train_loader)
+            # collect train metrics
+            probs = torch.sigmoid(outputs).squeeze(1)
+            preds = (probs > 0.5).long()
+            train_labels.extend(labels.squeeze(1).cpu().tolist())
+            train_preds.extend(preds.cpu().tolist())
 
-        # validation
+        train_loss = running_loss / len(self.train_loader)
+        history["loss"].append(train_loss)
+        train_acc = accuracy_score(train_labels, train_preds)
+        history["accuracy"].append(train_acc)
+        train_macro_f1 = f1_score(train_labels, train_preds, average='macro')
+        history["macro_f1"].append(train_macro_f1)
+
+        # Validation
         self.model.eval()
+        val_loss = 0.0
         correct = 0
         total = 0
         all_labels = []
@@ -372,23 +472,32 @@ def train_model(self):
         with torch.no_grad():
             for images, labels in self.val_loader:
                 images = images.to(self.device)
-                labels = labels.to(self.device)
+                labels = labels.float().unsqueeze(1).to(self.device)
 
                 outputs = self.model(images)
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
+
                 probs = torch.sigmoid(outputs).squeeze(1)
                 preds = (probs > 0.5).long()
+                labels_1d = labels.squeeze(1).long()
 
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-                all_labels.extend(labels.cpu().tolist())
+                correct += (preds == labels_1d).sum().item()
+                total += labels_1d.size(0)
+
+                all_labels.extend(labels_1d.cpu().tolist())
                 all_preds.extend(preds.cpu().tolist())
 
-        acc = correct / total
-        macro_f1 = f1_score(all_labels, all_preds, average='macro')
+        val_loss /= len(self.val_loader)
+        history["val_loss"].append(val_loss)
+        val_acc = correct / total
+        history["val_accuracy"].append(val_acc)
+        val_macro_f1 = f1_score(all_labels, all_preds, average='macro')
+        history["val_macro_f1"].append(val_macro_f1)
 
         # 🔴 Early stopping logic
-        if macro_f1 > best_macro_f1:
-            best_macro_f1 = macro_f1
+        if val_macro_f1 > best_macro_f1:
+            best_macro_f1 = val_macro_f1
             best_model_weights = copy.deepcopy(self.model.state_dict())
             epochs_no_improve = 0
         else:
@@ -399,9 +508,12 @@ def train_model(self):
             print(f"Training finished. Best Macro F1: {best_macro_f1:.4f}")
             break
 
-        print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}, Accuracy: {acc:.4f}, Macro F1: {macro_f1:.4f}")
+        print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Train Accuracy: {train_acc:.4f}, Val Accuracy: {val_acc:.4f}, Train Macro F1: {train_macro_f1:.4f}, Val Macro F1: {val_macro_f1:.4f}")
 
         self.scheduler.step()
+    print_2var_plots(self, history["loss"], history["val_loss"], "Train Loss", "Val Loss", "Loss Curves", "Epoch", "Loss")
+    print_2var_plots(self, history["accuracy"], history["val_accuracy"], "Train Accuracy", "Val Accuracy", "Accuracy Curves", "Epoch", "Accuracy")
+    print_2var_plots(self, history["macro_f1"], history["val_macro_f1"], "Train Macro F1", "Val Macro F1", "Macro F1 Curves", "Epoch", "Macro F1 Score")
 
 
 # -------------------------
@@ -444,7 +556,7 @@ def tune_and_evaluate_model(self):
 
         print("\n")
         print("-" * 50)
-        print("Training Validation summary:")
+        print("2 class validation summary:")
         print("-" * 50)
 
         cm_val = confusion_matrix(backtest_2_class_labels, backtest_2_class_preds)
@@ -454,10 +566,9 @@ def tune_and_evaluate_model(self):
 
         print(f"\nTotal samples: {len(backtest_2_class_preds)}")
         print(f"Correct predictions: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels))}")
-        print(f"Accuracy: {sum(np.array(backtest_2_class_preds) == np.array(backtest_2_class_labels)) / len(backtest_2_class_preds):.4f}")
+        print(f"Accuracy: {accuracy_score(backtest_2_class_labels, backtest_2_class_preds):.4f}")
         print(f"Average confidence: {np.mean(backtest_2_class_confidences):.4f}")
         print(f"Macro F1: {f1_score(backtest_2_class_labels, backtest_2_class_preds, average='macro'):.4f}")
-        print(f"Balanced Accuracy: {balanced_accuracy_score(backtest_2_class_labels, backtest_2_class_preds):.4f}")
 
     # -------------------------
     # Threshold auto-tuning for 3 class classification
@@ -618,10 +729,10 @@ def tune_and_evaluate_model(self):
 # Save the trained model
 # -------------------------
 def save_model(self):
-    out_path = Path(f"final_models/{self.model_name}_model.pth")
+    out_path = Path(f"final_models/{self.model_name}/temp/{self.model_name}_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(self.model.state_dict(), out_path)
-    with open("final_models/all_thresholds.txt", "w") as f:
+    with open("final_models/all_thresholds.txt", "a") as f:
         f.write(f"{self.model_name}-\n")
         f.write(f"Low: {low_threshold:.4f}\n")
         f.write(f"High: {high_threshold:.4f}\n")
@@ -637,7 +748,7 @@ if __name__ == '__main__':
     argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for 3 class classification (used when auto_tune_thresholds is False)")
     argparser.add_argument("-r", "--noMov_ratio", type=float, default=default_noMov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
     argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
-    argparser.add_argument("--backbone_lr_scale", type=float, default=backbone_lr_scale, help="Scale factor for backbone LR relative to base LR (e.g. 0.1)")
+    argparser.add_argument("--backbone_lr_scale", type=float, default=default_backbone_lr_scale, help="Scale factor for backbone LR relative to base LR (e.g. 0.1)")
     args = argparser.parse_args()
 
     # -------------------------
@@ -692,16 +803,12 @@ if __name__ == '__main__':
         model_name = ModelNames.ALL_TIs
     elif (args.model_name == "No_TIs"):
         model_name = ModelNames.NO_TIs
-    elif (args.model_name == "No_BB"):
-        model_name = ModelNames.NO_BB
-    elif (args.model_name == "No_BB_No_RSI"):
-        model_name = ModelNames.NO_BB_NO_RSI
-    elif (args.model_name == "No_BB_No_OBV"):
-        model_name = ModelNames.NO_BB_NO_OBV
-    elif (args.model_name == "No_RSI"):
-        model_name = ModelNames.NO_RSI
-    elif (args.model_name == "No_RSI_No_OBV"):
-        model_name = ModelNames.NO_RSI_NO_OBV
+    elif (args.model_name == "OBV"):
+        model_name = ModelNames.OBV
+    elif (args.model_name == "RSI"):
+        model_name = ModelNames.RSI
+    elif (args.model_name == "BB"):
+        model_name = ModelNames.BB
     elif (args.model_name == "No_OBV"):
         model_name = ModelNames.NO_OBV
     else:
@@ -709,6 +816,7 @@ if __name__ == '__main__':
 
     new_model = ModelMaker(model_name=model_name)
     new_model.print_summary()
+    new_model.visualize_embeddings()
     new_model.train_model()
     new_model.evaluate_model()
     new_model.save_model()

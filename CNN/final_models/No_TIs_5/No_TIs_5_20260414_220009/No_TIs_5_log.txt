@@ -1,0 +1,84 @@
+Starting training for model: No_TIs_5 : 2026-04-14 21:51:17
+Using device: cpu
+Optimizer setup: base_lr=2.00e-04, backbone_lr=2.00e-05, head_params=4, backbone_params=88, weight_decay=1.00e-02
+
+2026-04-14 21:51:17
+--------------------------------------------------
+Configuration summary:
+--------------------------------------------------
+Model name: No_TIs_5
+Max number of epochs: 12
+Base learning rate: 0.0002
+Backbone LR scale: 0.1
+Auto-tuning NOMOV thresholds
+Number of stages to unfreeze for fine-tuning: 2
+--------------------------------------------------
+Saved embedding plot to final_models\No_TIs_5\No_TIs_5_preembeddings_20260414_215141.png
+Epoch 1, Train Loss: 0.6997, Val Loss: 0.7046, Train Accuracy: 0.5054, Val Accuracy: 0.4423, Train Macro F1: 0.5000, Val Macro F1: 0.3373
+Epoch 2, Train Loss: 0.6870, Val Loss: 0.7066, Train Accuracy: 0.5599, Val Accuracy: 0.4742, Train Macro F1: 0.5577, Val Macro F1: 0.4651
+Epoch 3, Train Loss: 0.6836, Val Loss: 0.7161, Train Accuracy: 0.5695, Val Accuracy: 0.4521, Train Macro F1: 0.5683, Val Macro F1: 0.3980
+Epoch 4, Train Loss: 0.6754, Val Loss: 0.7186, Train Accuracy: 0.5732, Val Accuracy: 0.4816, Train Macro F1: 0.5731, Val Macro F1: 0.4618
+Epoch 5, Train Loss: 0.6770, Val Loss: 0.6984, Train Accuracy: 0.5816, Val Accuracy: 0.5012, Train Macro F1: 0.5812, Val Macro F1: 0.4604
+Epoch 6, Train Loss: 0.6432, Val Loss: 0.7381, Train Accuracy: 0.6239, Val Accuracy: 0.5356, Train Macro F1: 0.6231, Val Macro F1: 0.4097
+Training finished. Best Macro F1: 0.4651
+Saved embedding plot to final_models\No_TIs_5\No_TIs_5_postembeddings_20260414_215930.png
+
+
+--------------------------------------------------
+2 class validation summary:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement']
+[[ 92  79]
+ [112  87]]
+
+Total samples: 370
+Correct predictions: 179
+Accuracy: 0.4838
+Average confidence: 0.5530
+Macro F1: 0.4837
+
+
+--------------------------------------------------
+Threshold setting summary:
+--------------------------------------------------
+No manual thresholds applied. Thresholds will be auto-tuned based on noMov_ratio and/or automatic threshold estimation.
+
+Threshold auto-tune (sweep): objective=macro_f1, best_score=0.3295, best_balanced_acc=0.3307, best_low=0.4179, best_high=0.5735
+Thresholds used: low=0.4179, high=0.5735
+
+
+--------------------------------------------------
+Final evaluation on threshold_estimation set:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement', 'noMovement']
+[[ 12  22 137]
+ [ 21  29 149]
+ [110 109 759]]
+
+Total samples: 1348
+Correct predictions: 800
+High confidence samples: 160
+Low confidence samples: 143
+Average confidence: 0.4916
+Uncertain samples: 1045
+
+3 class confidence stats by predicted class:
+downMovement    | n= 143 | min=0.3685 | mean=0.4058 | max=0.4175
+upMovement      | n= 160 | min=0.5737 | mean=0.6053 | max=0.6885
+noMovement      | n=1045 | min=0.4179 | mean=0.4859 | max=0.5728
+
+3 class confidence stats by true class:
+downMovement    | n= 171 | mean_prob=0.5007 | std_prob=0.0613 | recall=0.0702
+upMovement      | n= 199 | mean_prob=0.4944 | std_prob=0.0642 | recall=0.1457
+noMovement      | n= 978 | mean_prob=0.4894 | std_prob=0.0624 | recall=0.7761
+
+Balanced accuracy (macro recall): 0.3307
+Macro F1: 0.3295
+
+3 class adjusted metrics:
+downMovement    | support= 171 | precision=0.0839 | recall=0.0702 | f1=0.0764
+upMovement      | support= 199 | precision=0.1812 | recall=0.1457 | f1=0.1616
+noMovement      | support= 978 | precision=0.7263 | recall=0.7761 | f1=0.7504
+
+A/B subset accuracy (ignoring NOMOV): 0.1108 (n=370)
+Saved Grad-CAMs to: final_models\No_TIs_5

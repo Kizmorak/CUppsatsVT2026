@@ -1,4 +1,3 @@
-import argparse
 import os
 import random
 
@@ -142,124 +141,13 @@ def pick_consecutive_images_by_class(dataset_dir, per_class=10, start_index=None
         else:
             idx = max(0, min(start_index, max_start))
 
-        class_to_images[class_name] = candidates[idx : idx + window]
+        class_to_images[class_name] = candidates[idx: idx + window]
 
     return class_to_images
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create Grad-CAM visualization for a trained binary ConvNeXt model")
-    parser.add_argument("--image", help="Path to input image (single-image mode)")
-    parser.add_argument(
-        "--dataset_dir",
-        help="Path to dataset split with class subfolders (batch mode: one random image per class)",
-    )
-    parser.add_argument(
-        "--checkpoint",
-        default="convnext_atto_finetuned.pth",
-        help="Path to model checkpoint (.pth)",
-    )
-    parser.add_argument(
-        "--output",
-        default="gradcam_output.png",
-        help="Path to output visualization image",
-    )
-    parser.add_argument(
-        "--negative",
-        action="store_true",
-        help="Visualize evidence for negative class instead of positive class",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Optional random seed for reproducible selection in batch mode",
-    )
-    parser.add_argument(
-        "--per_class",
-        type=int,
-        default=1,
-        help="Number of random images to visualize per class in batch mode",
-    )
-    parser.add_argument(
-        "--selection_mode",
-        choices=["random", "consecutive"],
-        default="random",
-        help="Batch selection strategy: random picks or consecutive-by-filename window",
-    )
-    parser.add_argument(
-        "--start_index",
-        type=int,
-        default=-1,
-        help="Start index for consecutive mode (sorted by filename). Use -1 for random start per class.",
-    )
-    args = parser.parse_args()
-
-    if not args.image and not args.dataset_dir:
-        raise ValueError("Provide either --image (single mode) or --dataset_dir (batch mode).")
-    if args.image and args.dataset_dir:
-        raise ValueError("Use either --image or --dataset_dir, not both.")
-
-    if args.image and not os.path.exists(args.image):
-        raise FileNotFoundError(f"Input image not found: {args.image}")
-    if args.dataset_dir and not os.path.isdir(args.dataset_dir):
-        raise FileNotFoundError(f"Dataset directory not found: {args.dataset_dir}")
-    if args.per_class < 1:
-        raise ValueError("--per_class must be >= 1")
-    if args.start_index < -1:
-        raise ValueError("--start_index must be >= -1")
-    if not os.path.exists(args.checkpoint):
-        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = build_model(device=device, checkpoint_path=args.checkpoint)
-    target_layer = get_target_layer(model)
-
-    if args.image:
-        render_gradcam(
-            model=model,
-            target_layer=target_layer,
-            device=device,
-            image_path=args.image,
-            output_path=args.output,
-            negative=args.negative,
-        )
-        print(f"Saved Grad-CAM to: {args.output}")
-        return
-
-    output_dir = args.output
-    os.makedirs(output_dir, exist_ok=True)
-    if args.selection_mode == "random":
-        selections = pick_random_images_by_class(
-            args.dataset_dir,
-            per_class=args.per_class,
-            seed=args.seed,
-        )
-    else:
-        start_index = None if args.start_index == -1 else args.start_index
-        selections = pick_consecutive_images_by_class(
-            args.dataset_dir,
-            per_class=args.per_class,
-            start_index=start_index,
-            seed=args.seed,
-        )
-
-    if not selections:
-        raise ValueError("No class images found in dataset_dir.")
-
-    for class_name, image_paths in selections.items():
-        for image_path in image_paths:
-            base = os.path.splitext(os.path.basename(image_path))[0]
-            output_path = os.path.join(output_dir, f"{class_name}_{base}_gradcam.png")
-            render_gradcam(
-                model=model,
-                target_layer=target_layer,
-                device=device,
-                image_path=image_path,
-                output_path=output_path,
-                negative=args.negative,
-            )
-            print(f"Saved Grad-CAM for {class_name}: {output_path}")
+    pass
 
 
 if __name__ == "__main__":
