@@ -1,0 +1,93 @@
+Using device: cpu
+Optimizer setup: base_lr=2.00e-04, backbone_lr=2.00e-05, head_params=4, backbone_params=88, weight_decay=1.00e-02
+
+2026-04-16 12:29:53
+--------------------------------------------------
+Configuration summary:
+--------------------------------------------------
+Model name: M5_RSI
+Max number of epochs: 12
+Base learning rate: 0.0002
+Backbone LR scale: 0.1
+Auto-tuning NOMOV thresholds
+Number of stages to unfreeze for fine-tuning: 2
+--------------------------------------------------
+Saved embedding plot to final_models/M5_RSI/M5_RSI_20260416_122953/M5_RSI_20260416_122953_preembeddings.png
+Epoch 1
+Train Loss: 0.6963, Train Accuracy: 0.5399, Train Macro F1: 0.5321
+Val Loss: 0.6963, Val Accuracy: 0.5184, Val Macro F1: 0.5107
+Epoch 2
+Train Loss: 0.6892, Train Accuracy: 0.5520, Train Macro F1: 0.5517
+Val Loss: 0.7135, Val Accuracy: 0.4545, Val Macro F1: 0.3201
+Epoch 3
+Train Loss: 0.6742, Train Accuracy: 0.5762, Train Macro F1: 0.5762
+Val Loss: 0.6905, Val Accuracy: 0.5160, Val Macro F1: 0.4166
+Epoch 4
+Train Loss: 0.6402, Train Accuracy: 0.6360, Train Macro F1: 0.6354
+Val Loss: 0.7756, Val Accuracy: 0.5086, Val Macro F1: 0.5085
+Epoch 5
+Train Loss: 0.5802, Train Accuracy: 0.6802, Train Macro F1: 0.6801
+Val Loss: 0.7993, Val Accuracy: 0.4865, Val Macro F1: 0.4855
+Training finished. Best Macro F1: 0.5107
+Saved embedding plot to final_models/M5_RSI/M5_RSI_20260416_122953/M5_RSI_20260416_122953_postembeddings.png
+
+
+--------------------------------------------------
+2 class validation summary:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement']
+[[ 57 114]
+ [ 68 131]]
+
+Total samples: 370
+Correct predictions: 188
+Accuracy: 0.5081
+Average confidence: 0.5516
+Macro F1: 0.4876
+
+
+--------------------------------------------------
+Threshold setting summary:
+--------------------------------------------------
+No manual thresholds applied. Thresholds will be auto-tuned based on noMov_ratio and/or automatic threshold estimation.
+
+Threshold auto-tune (sweep): objective=macro_f1, best_score=0.3413, best_balanced_acc=0.3408, best_low=0.4593, best_high=0.5870
+Thresholds used: low=0.4593, high=0.5870
+
+
+--------------------------------------------------
+Final evaluation on threshold_estimation set:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement', 'noMovement']
+[[ 28  18 125]
+ [ 34  27 138]
+ [187  84 707]]
+
+Total samples: 1348
+Correct predictions: 762
+High confidence samples: 129
+Low confidence samples: 249
+Average confidence: 0.5131
+Uncertain samples: 970
+
+3 class confidence stats by predicted class:
+downMovement    | n= 249 | min=0.3031 | mean=0.4186 | max=0.4587
+upMovement      | n= 129 | min=0.5877 | mean=0.6226 | max=0.7455
+noMovement      | n= 970 | min=0.4595 | mean=0.5227 | max=0.5868
+
+3 class confidence stats by true class:
+downMovement    | n= 171 | mean_prob=0.5203 | std_prob=0.0601 | recall=0.1637
+upMovement      | n= 199 | mean_prob=0.5215 | std_prob=0.0628 | recall=0.1357
+noMovement      | n= 978 | mean_prob=0.5101 | std_prob=0.0636 | recall=0.7229
+
+Balanced accuracy (macro recall): 0.3408
+Macro F1: 0.3413
+
+3 class adjusted metrics:
+downMovement    | support= 171 | precision=0.1124 | recall=0.1637 | f1=0.1333
+upMovement      | support= 199 | precision=0.2093 | recall=0.1357 | f1=0.1646
+noMovement      | support= 978 | precision=0.7289 | recall=0.7229 | f1=0.7259
+
+A/B subset accuracy (ignoring NOMOV): 0.1486 (n=370)
+Starting training for model: M5_RSI_20260416_122953
+Saved Grad-CAMs to: final_models/M5_RSI/M5_RSI_20260416_122953

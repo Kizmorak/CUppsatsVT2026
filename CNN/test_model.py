@@ -9,6 +9,7 @@ import os
 from torch.utils.data import Dataset
 import custom_tee
 import sys
+import re
 
 
 # -------------------------
@@ -27,14 +28,31 @@ sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
 
 class TestingModel:
 
-    def __init__(self, new_model):
+    def __init__(self, model_version):
 
         # --------------------------
         # Initialization: set up untrained model, set up device, load pretrained weights
         # --------------------------
-        self.new_model = new_model
-        self.model_name = new_model.model_name
-        self.model_path = f"final_models/{self.model_name}/{new_model.model_version}/{new_model.model_version}.pth"
+        self.model_version = model_version
+
+        self.model_name = re.match(r'^(.+?)_\d{8}_\d{6}', model_version).group(1)  # extract model name from version string
+
+        self.model_path = f"final_models/{self.model_name}/{self.model_version}/{self.model_version}.pth"
+
+        with open(f"final_models/{self.model_name}/{self.model_version}/thresholds_summary.txt", "r") as f:
+            line = f.readline()
+            try:
+                _, low_str, high_str = line.strip().split()
+                low_threshold = float(low_str.split("=")[1])
+                high_threshold = float(high_str.split("=")[1])
+                thresholds = (low_threshold, high_threshold)
+                print(f"Loaded thresholds from file for csv: low={low_threshold}, high={high_threshold}")
+            except Exception as e:
+                print(f"Error parsing thresholds from file: {e}. Using default thresholds.")
+                thresholds = (default_low, default_high)
+
+        self.thresholds = thresholds
+        self.low_threshold, self.high_threshold = thresholds
 
         # Set the device to GPU if available, otherwise use CPU
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,11 +104,6 @@ class TestingModel:
             shuffle=False,
             num_workers=self.num_workers
         )
-
-        # --------------------------
-        # Load thresholds for open-set classification (buy/sell/nomov)
-        # --------------------------
-        self.low_threshold, self.high_threshold = new_model.thresholds[0], new_model.thresholds[1]
 
     # -------------------------
     # Prediction functions
@@ -173,8 +186,8 @@ class TestingModel:
             plus = dt + timedelta(minutes=31)
             return plus.strftime("%Y-%m-%d %H:%M:00")
 
-        def save_3_class_csv_predictions(new_model, backtest_3_class_preds_and_paths):
-            out_path = Path(f"final_models/{new_model.model_name}/{new_model.model_version}/{new_model.model_version}_Backtesting_predictions.csv")
+        def save_3_class_csv_predictions(self, backtest_3_class_preds_and_paths):
+            out_path = Path(f"final_models/{self.model_name}/{self.model_version}/{self.model_version}_Backtesting_predictions.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -196,8 +209,8 @@ class TestingModel:
 
             print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
 
-        def save_2_class_csv_predictions(new_model, backtest_2_class_preds_and_paths):
-            out_path = Path(f"final_models/{new_model.model_name}/{new_model.model_version}/{new_model.model_version}_Backtesting_predictions_2_class.csv")
+        def save_2_class_csv_predictions(self, backtest_2_class_preds_and_paths):
+            out_path = Path(f"final_models/{self.model_name}/{self.model_version}/{self.model_version}_Backtesting_predictions_2_class.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -214,8 +227,8 @@ class TestingModel:
 
             print("Saved 2-class CSV.")
 
-        save_3_class_csv_predictions(self.new_model, backtest_3_class_preds_and_paths)
-        save_2_class_csv_predictions(self.new_model, backtest_2_class_preds_and_paths)
+        save_3_class_csv_predictions(self, backtest_3_class_preds_and_paths)
+        save_2_class_csv_predictions(self, backtest_2_class_preds_and_paths)
 
 
 class BacktestingDataset(Dataset):
@@ -230,6 +243,7 @@ class BacktestingDataset(Dataset):
         ]
 
         self.image_paths.sort()  # keep time order
+        print(f"BacktestingDataset loaded {len(self.image_paths)} images from {root_dir}")
 
     def __len__(self):
         return len(self.image_paths)

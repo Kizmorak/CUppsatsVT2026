@@ -105,29 +105,20 @@ def make_night_model(
 
     run_gradcam_for_model(new_model)
     copy_log_to_backup(new_model)
-    new_test_model = test_model.TestingModel(new_model)
+    new_test_model = test_model.TestingModel(new_model.model_version)
     new_test_model.backtesting_dataset_to_predictions()
 
 
 if __name__ == '__main__':
-    model_name = None
-    try:
-        for i in range(2):
-            model_name = model_maker.ModelNames.M5_RSI
-            make_night_model(
-                model_name=model_name,
-                num_stages_to_unfreeze=2,
-                base_lr=2e-4,
-                backbone_lr_scale=0.1,
-                max_epochs=12,
-            )
-    except Exception as e:
-        print(f"Error occurred while training and evaluating model: {model_name}: {e}")
 
+    # -------------------------
+    # Training the models
+    # -------------------------
+
+    # model_name = None
     # try:
-
     #     for i in range(2):
-    #         model_name = model_maker.ModelNames.OBV
+    #         model_name = model_maker.ModelNames.M5_RSI
     #         make_night_model(
     #             model_name=model_name,
     #             num_stages_to_unfreeze=2,
@@ -135,51 +126,16 @@ if __name__ == '__main__':
     #             backbone_lr_scale=0.1,
     #             max_epochs=12,
     #         )
-
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # try:
-
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.NO_TIs
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-
     # except Exception as e:
     #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
 
     # -------------------------
     # Testing the models
     # -------------------------
+    model_version = "M5_RSI_20260416_122953"  # specify the model version you want to test here
 
-    # Example usage of the testing functions
-
-    model_name = model_maker.ModelNames.ALL_TIs
-    low_threshold = 0.1
-    high_threshold = 0.9
-
-    # all_TIs_testing_model = test_model.TestingModel(model_maker.ModelNames.ALL_TIs)
-    # no_TIs_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_TIs)
-    # no_BB_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_BB)
-    # no_BB_NO_OBV_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_BB_NO_OBV)
-    # no_BB_NO_RSI_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_BB_NO_RSI)
-    # no_OBV_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_OBV)
-    # no_RSI_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_RSI)
-    # no_RSI_NO_OBV_testing_model = test_model.TestingModel(model_maker.ModelNames.NO_RSI_NO_OBV)
-
-    # all_TIs_testing_model.image_to_prediction()
-
-    # all_TIs_testing_model.backtesting_dataset_to_predictions()
-    # no_TIs_testing_model.backtesting_dataset_to_predictions()
-    # no_BB_testing_model.backtesting_dataset_to_predictions()
-    # no_BB_NO_OBV_testing_model.backtesting_dataset_to_predictions()
-    # no_BB_NO_RSI_testing_model.backtesting_dataset_to_predictions()
-    # no_OBV_testing_model.backtesting_dataset_to_predictions()
-    # no_RSI_testing_model.backtesting_dataset_to_predictions()
-    # no_RSI_NO_OBV_testing_model.backtesting_dataset_to_predictions()
+    try:
+        new_test_model = test_model.TestingModel(model_version)
+        new_test_model.backtesting_dataset_to_predictions()
+    except Exception as e:
+        print(f"Error occurred while testing model: {model_version}: {e}")

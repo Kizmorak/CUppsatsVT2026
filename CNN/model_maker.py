@@ -95,8 +95,8 @@ weight_decay = 1e-2
 # Auto-tuning options for thresholding
 auto_tune_thresholds = True
 # Manual fallback thresholds (used when auto_tune_thresholds == False)
-low_threshold = 1.0
-high_threshold = 9.0
+low_threshold = 0.0
+high_threshold = 0.0
 
 
 class ModelMaker:
@@ -637,6 +637,9 @@ def tune_and_evaluate_model(self):
 
         low_threshold, high_threshold = self.thresholds
         print(f"Thresholds used: low={low_threshold:.4f}, high={high_threshold:.4f}")
+
+        with open(f"final_models/{self.model_name}/{self.model_version}/thresholds_summary.txt", "w") as f:
+            f.write(f"{self.model_version}: low={low_threshold:.4f} high={high_threshold:.4f}\n")
 
         new_thresholds_preds = [predict_open_set(prob, low_threshold, high_threshold) for prob in nomov_probs]
 
