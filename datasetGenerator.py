@@ -80,7 +80,8 @@ def main(dateEnd, dateStart, numberOfClassesTraining, numberOfClassesValidation,
                         numberOfClassesBacktesting, datasetName, includeRSI, includeOBV, includeBB)
         dataCollection.GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery,
                         numberOfClassesValidation, datasetName, includeRSI, includeOBV, includeBB)
-        dataCollection.GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClassesTraining)
+        dataCollection.GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery,
+                        numberOfClassesTraining, datasetName, includeRSI, includeOBV, includeBB)
 
     if createCSV == 1:
         dataCollection.createCSVFromDataset(ratesData, "fullDataset")
@@ -103,11 +104,11 @@ if __name__ == '__main__':
 
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(365)),
-            "trainingDaysRequested": -(80), # Only change value in parentheses
-            "validationDaysRequested": -(20),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20), # Only change value in parentheses
-            "backtestDaysRequested": -(20),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
+            "trainingDaysRequested": -(80*5), # Only change value in parentheses
+            "validationDaysRequested": -(20*5),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
+            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
@@ -152,11 +153,11 @@ if __name__ == '__main__':
         },
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(365)),
-            "trainingDaysRequested": -(80),  # Only change value in parentheses
-            "validationDaysRequested": -(20),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20),  # Only change value in parentheses
-            "backtestDaysRequested": -(20),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
+            "trainingDaysRequested": -(80*5), # Only change value in parentheses
+            "validationDaysRequested": -(20*5),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
+            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
@@ -201,11 +202,11 @@ if __name__ == '__main__':
         },
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(365)),
-            "trainingDaysRequested": -(80),  # Only change value in parentheses
-            "validationDaysRequested": -(20),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20),  # Only change value in parentheses
-            "backtestDaysRequested": -(20),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
+            "trainingDaysRequested": -(80*5), # Only change value in parentheses
+            "validationDaysRequested": -(20*5),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
+            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
@@ -250,11 +251,11 @@ if __name__ == '__main__':
         },
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(365)),
-            "trainingDaysRequested": -(80),  # Only change value in parentheses
-            "validationDaysRequested": -(20),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20),  # Only change value in parentheses
-            "backtestDaysRequested": -(20),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
+            "trainingDaysRequested": -(80*5), # Only change value in parentheses
+            "validationDaysRequested": -(20*5),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
+            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
