@@ -1,9 +1,8 @@
 import model_maker
+import test_model
 import sys
 import custom_tee
-from datetime import datetime
 from pathlib import Path
-import shutil
 
 import torch
 import gradcam_visualize
@@ -21,18 +20,12 @@ import gradcam_visualize
 sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
 
 
-def run_gradcam_for_model(model_name):
-    model_name_str = str(model_name)
-    model_dir = Path("final_models") / model_name_str / "temp"
-    checkpoint_candidates = sorted(
-        model_dir.glob(f"{model_name_str}*.pth"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    if not checkpoint_candidates:
-        print(f"Grad-CAM skipped: no checkpoint starting with '{model_name_str}' found in {model_dir}")
+def run_gradcam_for_model(new_model):
+    model_name_str = str(new_model.model_name)
+    model_path = Path("final_models") / model_name_str / new_model.model_version / f"{new_model.model_version}.pth"
+    if not model_path.exists():
+        print(f"Grad-CAM skipped: model checkpoint not found at {model_path}")
         return
-    checkpoint_path = checkpoint_candidates[0]
 
     image_candidates = []
     for split in ["val", "train", "threshold_estimation"]:
@@ -50,15 +43,15 @@ def run_gradcam_for_model(model_name):
         return
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = gradcam_visualize.build_model(device=device, checkpoint_path=str(checkpoint_path))
+    model = gradcam_visualize.build_model(device=device, checkpoint_path=str(model_path))
     target_layer = gradcam_visualize.get_target_layer(model)
 
     four_random_images = sorted(image_candidates)[:4]
-    out_dir = Path("final_models") / model_name_str / "temp"
+    out_dir = Path("final_models") / model_name_str / new_model.model_version
     out_dir.mkdir(parents=True, exist_ok=True)
     for img in four_random_images:
         image_path = str(img)
-        base_name = f"{model_name_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_gradcam"
+        base_name = f"{new_model.model_version}_gradcam"
         output_path = out_dir / f"{base_name}.png"
         suffix = 1
         while output_path.exists():
@@ -75,8 +68,9 @@ def run_gradcam_for_model(model_name):
     print(f"Saved Grad-CAMs to: {out_dir}")
 
 
-def copy_log_to_backup():
+def copy_log_to_backup(new_model):
     sys.stdout.flush()
+    model_name_str = str(new_model.model_name)
 
     with open("night_worker_log.txt", "r", encoding="utf-8") as source:
         last_log_content = source.read()
@@ -85,43 +79,12 @@ def copy_log_to_backup():
         print("No log content to back up.")
         return
 
-    log_lines = last_log_content.splitlines()
-    first_line = log_lines[0] if log_lines else datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    first_line = log_lines[0].strip()
-
-    prefix = "Starting training for model:"
-    if first_line.startswith(prefix):
-        payload = first_line[len(prefix):].strip()
-        model_name_str, _, timestamp_str = payload.rpartition(" : ")
-    else:
-        raise ValueError(f"Unexpected first log line: {first_line}")
-
-    with open(f"final_models/{model_name_str}/temp/{model_name_str}_log.txt", "w", encoding="utf-8") as backup:
+    with open(f"final_models/{model_name_str}/{new_model.model_version}/{new_model.model_version}_log.txt", "w", encoding="utf-8") as backup:
         backup.write(last_log_content)
 
-
-def archive_model_outputs(model_name):
-    model_name_str = str(model_name)
-    source_dir = Path("final_models") / model_name_str / "temp"
-    if not source_dir.exists():
-        print(f"Archive skipped: source directory not found: {source_dir}")
-        return None
-
-    archive_dir = Path("final_models") / model_name_str / f"{model_name_str}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-
-    for item in sorted(source_dir.iterdir()):
-        if item.is_file():
-            shutil.move(str(item), str(archive_dir / item.name))
-
-    if not any(source_dir.iterdir()):
-        try:
-            source_dir.rmdir()
-        except OSError:
-            pass
-
-    print(f"Archived model outputs to: {archive_dir}")
-    return archive_dir
+    # Clear the original log file for the next run
+    with open("night_worker_log.txt", "w", encoding="utf-8") as source:
+        source.write("")
 
 
 def make_night_model(
@@ -131,31 +94,26 @@ def make_night_model(
     backbone_lr_scale=0.1,
     max_epochs=30,
 ):
-    # delete temp directory for the model if it exists, to ensure a clean start
-    model_name_str = str(model_name)
-    temp_dir = Path("final_models") / model_name_str / "temp"
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir)
-
-    print(f"Starting training for model: {model_name} : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    model_maker.ModelMaker(
+    new_model = model_maker.ModelMaker(
         model_name=model_name,
         num_stages_to_unfreeze=num_stages_to_unfreeze,
         base_lr=base_lr,
         backbone_lr_scale=backbone_lr_scale,
         max_epochs=max_epochs,
     )
+    print(f"Starting training for model: {new_model.model_version}")
 
-    run_gradcam_for_model(model_name)
-    copy_log_to_backup()
-    archive_model_outputs(model_name)
+    run_gradcam_for_model(new_model)
+    copy_log_to_backup(new_model)
+    new_test_model = test_model.TestingModel(new_model)
+    new_test_model.backtesting_dataset_to_predictions()
 
 
 if __name__ == '__main__':
-
+    model_name = None
     try:
-        for i in range(1):
-            model_name = model_maker.ModelNames.NO_TIs
+        for i in range(2):
+            model_name = model_maker.ModelNames.M5_RSI
             make_night_model(
                 model_name=model_name,
                 num_stages_to_unfreeze=2,
@@ -163,9 +121,38 @@ if __name__ == '__main__':
                 backbone_lr_scale=0.1,
                 max_epochs=12,
             )
-
     except Exception as e:
         print(f"Error occurred while training and evaluating model: {model_name}: {e}")
+
+    # try:
+
+    #     for i in range(2):
+    #         model_name = model_maker.ModelNames.OBV
+    #         make_night_model(
+    #             model_name=model_name,
+    #             num_stages_to_unfreeze=2,
+    #             base_lr=2e-4,
+    #             backbone_lr_scale=0.1,
+    #             max_epochs=12,
+    #         )
+
+    # except Exception as e:
+    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
+
+    # try:
+
+    #     for i in range(2):
+    #         model_name = model_maker.ModelNames.NO_TIs
+    #         make_night_model(
+    #             model_name=model_name,
+    #             num_stages_to_unfreeze=2,
+    #             base_lr=2e-4,
+    #             backbone_lr_scale=0.1,
+    #             max_epochs=12,
+    #         )
+
+    # except Exception as e:
+    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
 
     # -------------------------
     # Testing the models

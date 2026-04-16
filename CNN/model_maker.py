@@ -31,6 +31,7 @@ class ModelNames(Enum):
     BB = "BB"
     NO_OBV = "No_OBV"
     NO_TIs_5 = "No_TIs_5"
+    M5_RSI = "M5_RSI"
 
     def __str__(self):
         return str(self.value)
@@ -94,8 +95,8 @@ weight_decay = 1e-2
 # Auto-tuning options for thresholding
 auto_tune_thresholds = True
 # Manual fallback thresholds (used when auto_tune_thresholds == False)
-low_threshold = 0.0
-high_threshold = 0.0
+low_threshold = 1.0
+high_threshold = 9.0
 
 
 class ModelMaker:
@@ -105,11 +106,12 @@ class ModelMaker:
         max_epochs=default_max_epochs,
         noMov_ratio=0.0,
         num_stages_to_unfreeze=1,
-        thresholds=(0, 0),
+        thresholds=(low_threshold, high_threshold),
         base_lr=default_base_lr,
         backbone_lr_scale=default_backbone_lr_scale,
     ):
         self.model_name = model_name
+        self.model_version = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.max_epochs = max_epochs
         self.noMov_ratio = noMov_ratio
         self.num_stages_to_unfreeze = num_stages_to_unfreeze
@@ -336,7 +338,7 @@ def print_summary(self):
 def print_2var_plots(self, var_1, var_2, label_1, label_2, title, xlabel, ylabel):
     # After training, plot the training loss curve
     model_name_str = str(self.model_name)
-    out_dir = Path("final_models") / model_name_str / "temp"
+    out_dir = Path("final_models") / model_name_str / self.model_version
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_title = title.replace(" ", "_")
     out_path = out_dir / f"{model_name_str}_{safe_title}_plot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
@@ -399,9 +401,9 @@ def visualize_embeddings(self, pre_training=False):
     plt.tight_layout()
 
     if pre_training:
-        out_path = Path("final_models") / model_name_str / "temp" / f"{model_name_str}_preembeddings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_path = Path("final_models") / model_name_str / self.model_version / f"{self.model_version}_preembeddings.png"
     else:
-        out_path = Path("final_models") / model_name_str / "temp" / f"{model_name_str}_postembeddings_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        out_path = Path("final_models") / model_name_str / self.model_version / f"{self.model_version}_postembeddings.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=200)
     plt.close()
@@ -508,7 +510,9 @@ def train_model(self):
             print(f"Training finished. Best Macro F1: {best_macro_f1:.4f}")
             break
 
-        print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Train Accuracy: {train_acc:.4f}, Val Accuracy: {val_acc:.4f}, Train Macro F1: {train_macro_f1:.4f}, Val Macro F1: {val_macro_f1:.4f}")
+        print(f"Epoch {epoch+1}")
+        print(f"Train Loss: {train_loss:.4f}, Train Accuracy: {train_acc:.4f}, Train Macro F1: {train_macro_f1:.4f}")
+        print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}, Val Macro F1: {val_macro_f1:.4f}")
 
         self.scheduler.step()
     print_2var_plots(self, history["loss"], history["val_loss"], "Train Loss", "Val Loss", "Loss Curves", "Epoch", "Loss")
@@ -729,13 +733,9 @@ def tune_and_evaluate_model(self):
 # Save the trained model
 # -------------------------
 def save_model(self):
-    out_path = Path(f"final_models/{self.model_name}/temp/{self.model_name}_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pth")
+    out_path = Path(f"final_models/{self.model_name}/{self.model_version}/{self.model_version}.pth")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(self.model.state_dict(), out_path)
-    with open("final_models/all_thresholds.txt", "a") as f:
-        f.write(f"{self.model_name}-\n")
-        f.write(f"Low: {low_threshold:.4f}\n")
-        f.write(f"High: {high_threshold:.4f}\n")
 
 
 if __name__ == '__main__':

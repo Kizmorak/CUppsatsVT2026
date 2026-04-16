@@ -27,13 +27,14 @@ sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
 
 class TestingModel:
 
-    def __init__(self, model_name=None):
+    def __init__(self, new_model):
 
         # --------------------------
         # Initialization: set up untrained model, set up device, load pretrained weights
         # --------------------------
-        self.model_name = model_name
-        self.model_path = f"final_models/{self.model_name}_model.pth"
+        self.new_model = new_model
+        self.model_name = new_model.model_name
+        self.model_path = f"final_models/{self.model_name}/{new_model.model_version}/{new_model.model_version}.pth"
 
         # Set the device to GPU if available, otherwise use CPU
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -89,29 +90,7 @@ class TestingModel:
         # --------------------------
         # Load thresholds for open-set classification (buy/sell/nomov)
         # --------------------------
-        self.low_threshold = default_low
-        self.high_threshold = default_high
-
-        # Load thresholds from all_thresholds.txt if available
-        with open("final_models/all_thresholds.txt", "r") as f:
-            lines = f.readlines()
-            for i in range(0, len(lines), 3):
-                model_line = lines[i].strip()
-                low_line = lines[i + 1].strip()
-                high_line = lines[i + 2].strip()
-
-                if model_line.startswith(f"{self.model_name}-"):
-                    self.low_threshold = float(low_line.split(":")[1].strip())
-                    self.high_threshold = float(high_line.split(":")[1].strip())
-                    print(
-                        f"Using thresholds for {self.model_name}: "
-                        f"Low={self.low_threshold:.4f}, High={self.high_threshold:.4f}"
-                    )
-                    break
-            else:
-                print(f"No thresholds found for {self.model_name} in all_thresholds.txt. Using default thresholds.")
-                self.low_threshold = default_low
-                self.high_threshold = default_high
+        self.low_threshold, self.high_threshold = new_model.thresholds[0], new_model.thresholds[1]
 
     # -------------------------
     # Prediction functions
@@ -194,8 +173,8 @@ class TestingModel:
             plus = dt + timedelta(minutes=31)
             return plus.strftime("%Y-%m-%d %H:%M:00")
 
-        def save_3_class_csv_predictions(model_name, backtest_3_class_preds_and_paths):
-            out_path = Path(f"csv_files/{model_name}_Backtesting_predictions.csv")
+        def save_3_class_csv_predictions(new_model, backtest_3_class_preds_and_paths):
+            out_path = Path(f"final_models/{new_model.model_name}/{new_model.model_version}/{new_model.model_version}_Backtesting_predictions.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -217,8 +196,8 @@ class TestingModel:
 
             print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
 
-        def save_2_class_csv_predictions(model_name, backtest_2_class_preds_and_paths):
-            out_path = Path(f"csv_files/{model_name}_Backtesting_predictions_2_class.csv")
+        def save_2_class_csv_predictions(new_model, backtest_2_class_preds_and_paths):
+            out_path = Path(f"final_models/{new_model.model_name}/{new_model.model_version}/{new_model.model_version}_Backtesting_predictions_2_class.csv")
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -235,8 +214,8 @@ class TestingModel:
 
             print("Saved 2-class CSV.")
 
-        save_3_class_csv_predictions(self.model_name, backtest_3_class_preds_and_paths)
-        save_2_class_csv_predictions(self.model_name, backtest_2_class_preds_and_paths)
+        save_3_class_csv_predictions(self.new_model, backtest_3_class_preds_and_paths)
+        save_2_class_csv_predictions(self.new_model, backtest_2_class_preds_and_paths)
 
 
 class BacktestingDataset(Dataset):
