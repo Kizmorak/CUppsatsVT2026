@@ -8,11 +8,13 @@ import os
 import shutil
 from matplotlib.colors import LinearSegmentedColormap
 
-dateEnd = datetime(2026, 4, 1) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
+dateEnd = datetime(2026, 1, 31) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
 dateStart = dateEnd - timedelta(days=(365)) #Can be set to a larger number than needed
-trainingDaysRequested = -(1) #Only change value in parentheses
-validationDaysRequested = -(1) #Only change value in parentheses
-backtestDaysRequested = -(8) #Only change value in parentheses
+trainingDaysRequested = -(80) #Only change value in parentheses
+validationDaysRequested = -(20) #Only change value in parentheses
+threshold_estimationDaysRequested = -(20) #Only change value in parentheses
+backtestDaysRequested = -(20) #Only change value in parentheses
+
 timeOfDayStart = "08:30"
 timeOfDayEnd = "15:00"
 
@@ -26,6 +28,7 @@ thresholdFolderName = "threshold_estimation"
 numberOfClassesTraining = 2
 numberOfClassesValidation = 2
 numberOfClassesBacktesting = 3
+numberOfClassesthreshold_estimation = 3
 
 #List of dataset names, use 1 or choose your own name
 #datasetName = "all_TIs"
@@ -35,12 +38,13 @@ numberOfClassesBacktesting = 3
 #datasetName = "No_BB_No_OBV"
 #datasetName = "No_RSI"
 #datasetName = "No_RSI_No_OBV"
-datasetName = "No_OBV"
+#datasetName = "No_OBV"
+datasetName = "RSI"
 
 #CHART VARIABLES: 0 is not included. 1 is included
 includeMA30 = 0
-includeBB = 1
-includeOBV = 1
+includeBB = 0
+includeOBV = 0
 includeRSI = 1
 
 #Choose what files to create
@@ -50,25 +54,25 @@ createCSV = 1 #Set to 1 if you want a CSV of the complete dataset data
 
 
 #VARIABLES THAT CAN BE CHANGED BUT PROBABLY SHOULD NOT BE CHANGED###################################################
-ratesSymbol = "USDSEK"
-ratesTimeFrame = mt5.TIMEFRAME_M1
+ratesSymbol = "XAUUSD"
+ratesTimeFrame = mt5.TIMEFRAME_M5
 
 includeTIs = 1
 
-MAWindowSize = 30
+MAWindowSize = 15
 MAPrice = "close"
 
 BBPeriod = 20
 BBStandardDeviations = 2
 
-atrFactor = 5
+atrFactor = 1
 atrPeriod = 14
 
 RSIPeriod = 14
 
-significantMovementPeriod = 10
+significantMovementPeriod = 2
 
-windowSize = 30 #in function: GenerateDataSet
+windowSize = 12 #in function: GenerateDataSet
 getNoMovementEvery = 1 #in function: GenerateDataSet
 ####################################################################################################################
 
@@ -100,22 +104,30 @@ def main():
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
     ####################################################################################################################
 
+    #thresholdFolderName = "threshold_estimation"
+
+
     # Generate Backtesting dataset
     requestedBacktestingDays = uniqueDays[backtestDaysRequested:]
     backtestRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedBacktestingDays)]
 
+    # Generate threshold_estimation dataset
+    requestedthreshold_estimationDays = uniqueDays[(threshold_estimationDaysRequested+backtestDaysRequested):backtestDaysRequested]
+    threshold_estimationRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedthreshold_estimationDays)]
+
     #Generate validation dataset
-    requestedValidationDays = uniqueDays[((backtestDaysRequested+validationDaysRequested)):backtestDaysRequested]
+    requestedValidationDays = uniqueDays[((threshold_estimationDaysRequested+backtestDaysRequested+validationDaysRequested)):(threshold_estimationDaysRequested+backtestDaysRequested)]
     validationRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedValidationDays)]
 
     # Generate training dataset
-    requestedTrainingDays = uniqueDays[((backtestDaysRequested+trainingDaysRequested+validationDaysRequested)):(backtestDaysRequested+validationDaysRequested)]
+    requestedTrainingDays = uniqueDays[((threshold_estimationDaysRequested+backtestDaysRequested+trainingDaysRequested+validationDaysRequested)):(threshold_estimationDaysRequested+backtestDaysRequested+validationDaysRequested)]
     trainingRatesData = ratesData[pd.Index(ratesData.index.date).isin(requestedTrainingDays)]
 
     if generateDataset == 1:
         if os.path.exists("datasetNew"):
             shutil.rmtree("datasetNew")
             print(f"Deleted existing folder: {"datasetNew"}")
+        GenerateDataSet(threshold_estimationRatesData, thresholdFolderName, windowSize, getNoMovementEvery, numberOfClassesthreshold_estimation)
         GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery, numberOfClassesBacktesting)
         GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClassesValidation)
         GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClassesTraining)
@@ -246,7 +258,7 @@ def makePlot(ratesData, saveFolderName):
     time_deltas = ratesData.index.to_series().diff().dropna()
 
     # Check if any gap is NOT equal to 1 minute
-    if not (time_deltas == pd.Timedelta(minutes=1)).all():
+    if not (time_deltas == pd.Timedelta(minutes=5)).all():
         print("Skipping: Gap in minute data detected.")
         return False
 
