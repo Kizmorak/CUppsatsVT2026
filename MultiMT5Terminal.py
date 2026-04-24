@@ -14,10 +14,11 @@ from matplotlib.colors import LinearSegmentedColormap
 
 import dataCollection
 #import dataCollection
-from dataCollection import ratesSymbol, ratesTimeFrame
+#from dataCollection import ratesSymbol, ratesTimeFrame
 import test_model
 
-
+ratesSymbol = "XAUUSD"
+ratesTimeFrame = mt5.TIMEFRAME_M5
 # 1. Define the worker function
 def run_trader(path, login, password, server, TIConfiguration):
     # Each process initializes its own connection
@@ -31,21 +32,21 @@ def run_trader(path, login, password, server, TIConfiguration):
     includeRSI = 0
     includeOBV = 0
 
-    if TIConfiguration == "All_TIs":
+    if "All_TIs" in TIConfiguration:
         includeBB = 1
         includeRSI = 1
         includeOBV = 1
     elif TIConfiguration == "No_BB":
         includeRSI = 1
         includeOBV = 1
-    elif TIConfiguration == "No_BB_No_RSI":
+    elif "OBV" in TIConfiguration:
         includeOBV = 1
-    elif TIConfiguration == "No_BB_No_OBV":
+    elif "RSI" in TIConfiguration:
         includeRSI = 1
     elif TIConfiguration == "No_RSI":
         includeBB = 1
         includeOBV = 1
-    elif TIConfiguration == "No_RSI_No_OBV":
+    elif "BB" in TIConfiguration:
         includeBB = 1
     elif TIConfiguration == "No_OBV":
         includeRSI = 1
@@ -53,19 +54,18 @@ def run_trader(path, login, password, server, TIConfiguration):
 
     last_min = datetime.datetime.now().minute
 
-    TIConfiguration = TIConfiguration + "_model"
+    TIConfiguration = TIConfiguration
     model = test_model.TestingModel(TIConfiguration)
-
+    lastCandle = waitForNewCandle(ratesSymbol, ratesTimeFrame)
     try:
         while True:
-            current_min = datetime.datetime.now().minute
-            # Your trading logic goes here
-            # Example: check prices or send orders
-            if current_min != last_min and datetime.time(8, 30) <= datetime.datetime.now().time() <= datetime.time(15):
-                # --- DO SOMETHING HERE ---
+            #current_min = datetime.datetime.now().minute
+            currencCandle = waitForNewCandle(ratesSymbol, ratesTimeFrame)
+            if currencCandle is not None and currencCandle > lastCandle and datetime.time(8, 30) <= datetime.datetime.now().time() <= datetime.time(23):
                 print(f"New minute detected! It is now {datetime.datetime.now().strftime('%H:%M')}")
+                lastCandle = waitForNewCandle(ratesSymbol, ratesTimeFrame)
 
-                last_min = current_min
+                #last_min = current_min
 
                 ratesData = pd.DataFrame(mt5.copy_rates_from_pos(ratesSymbol, ratesTimeFrame, 0, 60))
                 # TECHNICAL INDICATORS CALCULATIONS##################################################################################
@@ -83,7 +83,7 @@ def run_trader(path, login, password, server, TIConfiguration):
                 ####################################################################################################################
                 print(ratesData.columns)
 
-                ratesData = ratesData.tail(30)
+                ratesData = ratesData.tail(10)
 
                 saveFolderName = os.path.join("inputGraph", TIConfiguration)
                 if os.path.exists(saveFolderName):
@@ -91,7 +91,7 @@ def run_trader(path, login, password, server, TIConfiguration):
                     print(f"Deleted existing folder: "+saveFolderName)
                 os.makedirs(saveFolderName)
 
-                makePlot(ratesData, saveFolderName, includeBB, includeRSI, includeOBV)
+                dataCollection.makePlot(ratesData, saveFolderName, includeRSI, includeOBV, includeBB, ratesTimeFrame)
 
                 #GET MODEL PREDICTION HERE!
                 direction = model.image_to_prediction()  # Kör modell mot bild
@@ -102,6 +102,8 @@ def run_trader(path, login, password, server, TIConfiguration):
 
                 order_type = direction
 
+                #symbol_info = mt5.symbol_info("XAUUSD")
+                #digits = symbol_info.digits
                 tick = mt5.symbol_info_tick(ratesSymbol)
                 spread = tick.ask - tick.bid
                 #digits = mt5.symbol_info(ratesSymbol).digits
@@ -109,17 +111,19 @@ def run_trader(path, login, password, server, TIConfiguration):
                 if direction == "buy":
                     order_type = mt5.ORDER_TYPE_BUY
                     price = tick.ask  # Buy at the Ask
-                    sl = price - (atr * 5) - spread  # SL is below price
-                    tp = price + (atr * 5) + spread  # TP is above price
+                    sl = price - (atr * 1) # SL is below price
+                    tp = price + (atr * 1)  # TP is above price
 
                 elif direction == "sell":
                     order_type = mt5.ORDER_TYPE_SELL
                     price = tick.bid  # Sell at the Bid
-                    sl = price + (atr * 5) + spread  # SL is above price
-                    tp = price - (atr * 5) - spread  # TP is below price
+                    sl = price + (atr * 1)  # SL is above price
+                    tp = price - (atr * 1)  # TP is below price
 
-                expiration_time = int(time.time() + 60)
-
+                expiration_time = int(time.time() + (60*5))
+                #price_rounded = round(price, digits)
+                #sl_rounded = round(sl, digits)
+                #tp_rounded = round(tp, digits)
 
                 if order_type == mt5.ORDER_TYPE_BUY or order_type == mt5.ORDER_TYPE_SELL:
                     request = {
@@ -130,11 +134,10 @@ def run_trader(path, login, password, server, TIConfiguration):
                         "price": price,
                         "sl": sl,
                         "tp": tp,
-                        "deviation": 0,
+                        "deviation": 1,
                         "comment": "python script open",
-                        "type_time": mt5.ORDER_TIME_SPECIFIED,
-                        "expiration": expiration_time,
-                        "type_filling": mt5.ORDER_FILLING_FOK,
+                        "type_time": mt5.ORDER_TIME_GTC,
+                        "type_filling": mt5.ORDER_FILLING_IOC,
                     }
 
                     tick = mt5.symbol_info_tick(ratesSymbol)
@@ -155,9 +158,23 @@ def run_trader(path, login, password, server, TIConfiguration):
                                 for tradereq_filed in traderequest_dict:
                                     print("       traderequest: {}={}".format(tradereq_filed,
                                                                               traderequest_dict[tradereq_filed]))
+
+                    elif result.retcode == mt5.TRADE_RETCODE_DONE:
+                        market_context = {}
+                        for i, row in ratesData.iterrows():
+                            market_context[f'tick_{i}_close'] = row['close']
+                            market_context[f'tick_{i}_vol'] = row['tick_volume']
+                        csvData = {**market_context, **request, **result._asdict()}
+                        csvdf = pd.DataFrame([csvData])
+
+                        csv_file = TIConfiguration+'trade_dataset.csv'
+                        file_exists = os.path.isfile(csv_file)
+                        csvdf.to_csv(csv_file, mode='a', index=False, header=not file_exists)
+                        print("Dataset updated with trade and market context.")
                     # ERROR CODE FROM MT5
-            elif current_min != last_min:
-                last_min = current_min
+            elif currencCandle is not None and currencCandle > lastCandle:
+                #last_min = current_min
+                lastCandle = waitForNewCandle(ratesSymbol, ratesTimeFrame)
                 print(f"New minute detected outside trading hours! It is now {datetime.datetime.now().strftime('%H:%M')}")
 
             time.sleep(1)  # Wait 1 second before next loop
@@ -166,95 +183,59 @@ def run_trader(path, login, password, server, TIConfiguration):
     finally:
         mt5.shutdown()
 
-def makePlot(ratesData, saveFolderName, includeBB, includeRSI, includeOBV, includeTIs = 1, includeMA30 = 0):
-    #Day-Change Guard
-    if ratesData.index[0].date() != ratesData.index[-1].date():
-        print("Skipping: Day change detected.")
-        return False
+def waitForNewCandle(symbol, timeframe):
+    rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, 1)
+    if rates is None or len(rates) == 0:
+        return None
 
-    #Connection/Gap Guard
-    #Calculate the difference between consecutive timestamps
-    time_deltas = ratesData.index.to_series().diff().dropna()
-
-    # Check if any gap is NOT equal to 1 minute
-    if not (time_deltas == pd.Timedelta(minutes=1)).all():
-        print("Skipping: Gap in minute data detected.")
-        return False
-
-    #TI inclusion based on configuration
-    if includeTIs:
-        plotsConfig = []
-        if includeMA30 == 1:
-            plotsConfig.append({"col": "ma30", "color": "black", "width": 0.3})
-        if includeBB == 1:
-            plotsConfig.append({"col": "BBUpper", "color": "cyan", "width": 0.3})
-            plotsConfig.append({"col": "BBMiddle", "color": "orange", "width": 0.3})
-            plotsConfig.append({"col": "BBLower", "color": "cyan", "width": 0.3})
-        if includeRSI == 1:
-            plotsConfig.append({"col": "RSI", "color": "purple", "width": 0.5, "secondary_y": True})
-        if includeOBV == 1:
-            plotsConfig.append({"col": "OBV", "color": "blue", "width": 0.5, "panel": 1})
-        TIplots = [
-            mpf.make_addplot(ratesData[item["col"]], **{k: v for k, v in item.items() if k != "col"})
-            for item in plotsConfig
-        ]
-
-    #Generate base plot
-    customPlotStyle = mpf.make_mpf_style(base_mpf_style='charles', facecolor='none', figcolor='none', gridstyle='')
-    fig, axlist = mpf.plot(ratesData,
-                           type='candle',
-                           style=customPlotStyle,
-                           addplot=TIplots,
-                           figsize=(2.24, 2.24),
-                           axisoff=True,
-                           scale_padding={'left': 0.1, 'top': 0.1, 'right': 0.1, 'bottom': 0.1},
-                           returnfig=True)
-    ax = axlist[0]
-
-    # Set plot resolution
-    res = 224
-
-    #Calculate gradient based on plot values
-    y_min, y_max = axlist[0].get_ylim()
-    start_pct = np.clip((y_min - 5) / (13 - 5), 0, 1) - 0.01
-    stop_pct = np.clip((y_max - 5) / (13 - 5), 0, 1) + 0.01
-    grad_array = np.linspace(start_pct, stop_pct, res).reshape(-1, 1)
-    grad_2d = np.tile(grad_array, (1, res))
-    cmap = LinearSegmentedColormap.from_list('bp', ['blue', 'yellow', 'red', 'cyan', 'magenta', 'green'])
-    rgb_image = cmap(grad_2d)
-
-    #Add gradient to plot
-    #fig.figimage(rgb_image, resize=True, origin='lower', zorder=-10)
-
-    #Create save folder if not available
-    if saveFolderName and not os.path.exists(saveFolderName):
-        os.makedirs(saveFolderName)
-    #Specify folder to be saved in
-    file_path = os.path.join(saveFolderName, f"{ratesData.index[0].strftime('%Y-%m-%d_%H%M')}.png")
-    file_path = os.path.join(saveFolderName,"myImage.png")
-
-    #Save figure
-    fig.savefig(file_path)
-
-    print(f"Grafen är sparad som: {file_path}")
-
-    #Show graph
-    #plt.show()
-    #Close graph
-    plt.close()
-    return ""
+    return rates[0]['time']
 
 
 if __name__ == '__main__':
     # Define your account configurations
     print("Configure accounts")
     account_configs = [
-
+        {
+            "path": r"N:\MT5Terminals\Terminal1\MetaTrader 5\terminal64.exe",
+            "login": 5048694908, "password": "MlW_G6Mj", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "BB_70_10_10_10_20260131_10_15_2__20260420_163426"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal2\MetaTrader 5\terminal64.exe",
+            "login": 5048694942, "password": "-1QeDlGw", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "BB_70_10_10_10_20260131_10_15_2__20260420_164230"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal3\MetaTrader 5\terminal64.exe",
+            "login": 5048694953, "password": "!q4wIpQy", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "NO_TI_70_10_10_10_20260131_10_15_2__20260420_152155"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal4\MetaTrader 5\terminal64.exe",
+            "login": 105399222, "password": "Jl*yWb1q", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "NO_TI_70_10_10_10_20260131_10_15_2__20260420_153000"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal5\MetaTrader 5\terminal64.exe",
+            "login": 105399234, "password": "Ke!1CyDy", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "OBV_70_10_10_10_20260131_10_15_2__20260420_161638"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal6\MetaTrader 5\terminal64.exe",
+            "login": 105399322, "password": "-vL3GrUs", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "OBV_70_10_10_10_20260131_10_15_2__20260420_162532"
+        },
+        {
+            "path": r"N:\MT5Terminals\Terminal7\MetaTrader 5\terminal64.exe",
+            "login": 105399330, "password": "@6DxNeZj", "server": "MetaQuotes-Demo",
+            "TIConfiguration": "RSI_70_10_10_10_20260131_10_15_2__20260420_174417"
+        },
         {
             "path": r"N:\MT5Terminals\Terminal8\MetaTrader 5\terminal64.exe",
             "login": 105399341, "password": "-4TrOzHd", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_OBV"
+            "TIConfiguration": "RSI_70_10_10_10_20260131_10_15_2__20260420_175031"
         }
+
     ]
 
     # List of dataset names, use 1 or choose your own name
@@ -303,41 +284,7 @@ if __name__ == '__main__':
 #print("Terminal 3 online")
 
 """
-{
-            "path": r"N:\MT5Terminals\Terminal1\MetaTrader 5\terminal64.exe",
-            "login": 5048694908, "password": "MlW_G6Mj", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "All_TIs"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal2\MetaTrader 5\terminal64.exe",
-            "login": 5048694942, "password": "-1QeDlGw", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_TIs"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal3\MetaTrader 5\terminal64.exe",
-            "login": 5048694953, "password": "!q4wIpQy", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_BB"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal4\MetaTrader 5\terminal64.exe",
-            "login": 105399222, "password": "Jl*yWb1q", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_BB_No_RSI"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal5\MetaTrader 5\terminal64.exe",
-            "login": 105399234, "password": "Ke!1CyDy", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_BB_No_OBV"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal6\MetaTrader 5\terminal64.exe",
-            "login": 105399322, "password": "-vL3GrUs", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_RSI"
-        },
-        {
-            "path": r"N:\MT5Terminals\Terminal7\MetaTrader 5\terminal64.exe",
-            "login": 105399330, "password": "@6DxNeZj", "server": "MetaQuotes-Demo",
-            "TIConfiguration": "No_RSI_No_OBV"
-        },
+
         
         105818716
         !iTu3fZs

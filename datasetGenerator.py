@@ -24,7 +24,7 @@ def main(dateEnd, dateStart, numberOfClassesTraining, numberOfClassesValidation,
          trainingFolderName, validationFolderName, backtestFolderName, createCSV):
 
     print("This is the main function")
-
+    generateStartTime = datetime.now()
     print("Main variables set")
 
     print("Getting data from MT5")
@@ -47,6 +47,11 @@ def main(dateEnd, dateStart, numberOfClassesTraining, numberOfClassesValidation,
     ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     # Prepares data for chart
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+    print(f"Total upp movement: {(ratesData['target'] == 1).sum()}")
+    print(f"Total down movement: {(ratesData['target'] == 2).sum()}")
+    print(f"Total data rows: {len(ratesData)}")
+    print(f"Total decisions rows: {((ratesData['target'] == 2).sum()) + ((ratesData['target'] == 1).sum())}")
+    #print(f"Decitions per day: {(((ratesData['target'] == 2).sum()) + ((ratesData['target'] == 1).sum())) / (inputDays)}")
     ####################################################################################################################
 
     # Generate Backtesting dataset
@@ -74,14 +79,27 @@ def main(dateEnd, dateStart, numberOfClassesTraining, numberOfClassesValidation,
         if os.path.exists("datasetNew"):
             shutil.rmtree("datasetNew")
             print(f"Deleted existing folder: {"datasetNew"}")
-        dataCollection.GenerateDataSet(threshold_estimationRatesData, thresholdFolderName, windowSize, getNoMovementEvery,
-                        numberOfClassesthreshold_estimation, datasetName, includeRSI, includeOBV, includeBB)
-        dataCollection.GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery,
-                        numberOfClassesBacktesting, datasetName, includeRSI, includeOBV, includeBB)
-        dataCollection.GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery,
-                        numberOfClassesValidation, datasetName, includeRSI, includeOBV, includeBB)
+
         dataCollection.GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery,
-                        numberOfClassesTraining, datasetName, includeRSI, includeOBV, includeBB)
+                                       numberOfClassesTraining, datasetName, includeRSI, includeOBV, includeBB,
+                                       atrFactor,
+                                       significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                                       backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+        dataCollection.GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery,
+                                       numberOfClassesValidation, datasetName, includeRSI, includeOBV, includeBB,
+                                       atrFactor,
+                                       significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                                       backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+        dataCollection.GenerateDataSet(threshold_estimationRatesData, thresholdFolderName, windowSize, getNoMovementEvery,
+                        numberOfClassesthreshold_estimation, datasetName, includeRSI, includeOBV, includeBB, atrFactor,
+                                       significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                                       backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+        dataCollection.GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery,
+                        numberOfClassesBacktesting, datasetName, includeRSI, includeOBV, includeBB, atrFactor,
+                                       significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                                       backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+
+
 
     if createCSV == 1:
         dataCollection.createCSVFromDataset(ratesData, "fullDataset")
@@ -95,118 +113,23 @@ def main(dateEnd, dateStart, numberOfClassesTraining, numberOfClassesValidation,
     # ratesDataBacktest["time"] = datetime.timestamp(ratesDataBacktest["time"])
 
     # createCSVFromDataset(ratesDataBacktest, "backtestDataset.csv")
+    generateEndTime = datetime.now()
+    print(f"Dataset generation started at: {generateStartTime}")
+    print(f"Dataset generation ended at: {generateEndTime}")
+    print(f"Total time: {generateEndTime - generateStartTime}")
     return "This is the main function"
 
 if __name__ == '__main__':
     # Define your account configurations
     print("Configure datasets")
     configs = [
-
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
-            "trainingDaysRequested": -(80*5), # Only change value in parentheses
-            "validationDaysRequested": -(20*5),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
-            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
-
-            "timeOfDayStart": "08:30",
-            "timeOfDayEnd": "15:00",
-
-            # Dataset folder structure naming
-            "trainingFolderName": "train",
-            "validationFolderName": "val",
-            "backtestFolderName": "backtesting",
-            "thresholdFolderName": "threshold_estimation",
-
-            "numberOfClassesTraining": 2,
-            "numberOfClassesValidation": 2,
-            "numberOfClassesBacktesting": 3,
-            "numberOfClassesthreshold_estimation": 3,
-
-            "datasetName": "Candlestick",
-
-            "includeBB": 0,
-            "includeOBV": 0,
-            "includeRSI": 0,
-
-            "createCSV": 1,
-
-            "ratesSymbol": "XAUUSD",
-            "ratesTimeFrame": mt5.TIMEFRAME_M5,
-            ###
-            "MAWindowSize": 15,
-            "MAPrice": "close",
-
-            "BBPeriod": 20,
-            "BBStandardDeviations": 2,
-
-            "atrFactor": 3,
-            "atrPeriod": 14,
-
-            "RSIPeriod": 14,
-
-            "significantMovementPeriod": 2,
-
-            "windowSize": 12,  # in function: GenerateDataSet
-            "getNoMovementEvery": 1,  # in function: GenerateDataSet
-        },
-        {
-            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
-            "trainingDaysRequested": -(80*5), # Only change value in parentheses
-            "validationDaysRequested": -(20*5),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
-            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
-
-            "timeOfDayStart": "08:30",
-            "timeOfDayEnd": "15:00",
-
-            # Dataset folder structure naming
-            "trainingFolderName": "train",
-            "validationFolderName": "val",
-            "backtestFolderName": "backtesting",
-            "thresholdFolderName": "threshold_estimation",
-
-            "numberOfClassesTraining": 2,
-            "numberOfClassesValidation": 2,
-            "numberOfClassesBacktesting": 3,
-            "numberOfClassesthreshold_estimation": 3,
-
-            "datasetName": "BB",
-
-            "includeBB": 1,
-            "includeOBV": 0,
-            "includeRSI": 0,
-
-            "createCSV": 1,
-
-            "ratesSymbol": "XAUUSD",
-            "ratesTimeFrame": mt5.TIMEFRAME_M5,
-            ###
-            "MAWindowSize": 15,
-            "MAPrice": "close",
-
-            "BBPeriod": 20,
-            "BBStandardDeviations": 2,
-
-            "atrFactor": 3,
-            "atrPeriod": 14,
-
-            "RSIPeriod": 14,
-
-            "significantMovementPeriod": 2,
-
-            "windowSize": 12,  # in function: GenerateDataSet
-            "getNoMovementEvery": 1,  # in function: GenerateDataSet
-        },
-        {
-            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
-            "trainingDaysRequested": -(80*5), # Only change value in parentheses
-            "validationDaysRequested": -(20*5),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
-            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(150)),
+            "trainingDaysRequested": -(104),  # Only change value in parentheses
+            "validationDaysRequested": -(26),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
@@ -232,30 +155,373 @@ if __name__ == '__main__':
 
             "ratesSymbol": "XAUUSD",
             "ratesTimeFrame": mt5.TIMEFRAME_M5,
-            ###
+
             "MAWindowSize": 15,
             "MAPrice": "close",
 
             "BBPeriod": 20,
             "BBStandardDeviations": 2,
 
-            "atrFactor": 3,
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 4,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(115)),
+            "trainingDaysRequested": -(76),  # Only change value in parentheses
+            "validationDaysRequested": -(19),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "OBV",
+
+            "includeBB": 0,
+            "includeOBV": 1,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 3,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(145)),
+            "trainingDaysRequested": -(100),  # Only change value in parentheses
+            "validationDaysRequested": -(25),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "OBV",
+
+            "includeBB": 0,
+            "includeOBV": 1,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
             "atrPeriod": 14,
 
             "RSIPeriod": 14,
 
             "significantMovementPeriod": 2,
 
-            "windowSize": 12,  # in function: GenerateDataSet
+            "windowSize": 10,  # in function: GenerateDataSet
             "getNoMovementEvery": 1,  # in function: GenerateDataSet
         },
         {
             "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
-            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(800)),
-            "trainingDaysRequested": -(80*5), # Only change value in parentheses
-            "validationDaysRequested": -(20*5),  # Only change value in parentheses
-            "threshold_estimationDaysRequested": -(20*5), # Only change value in parentheses
-            "backtestDaysRequested": -(20*5),  # Only change value in parentheses
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(105)),
+            "trainingDaysRequested": -(68),  # Only change value in parentheses
+            "validationDaysRequested": -(17),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "OBV",
+
+            "includeBB": 0,
+            "includeOBV": 1,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M1,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1.5,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 2,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(150)),
+            "trainingDaysRequested": -(104),  # Only change value in parentheses
+            "validationDaysRequested": -(26),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "BB",
+
+            "includeBB": 1,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M5,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 4,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(115)),
+            "trainingDaysRequested": -(76),  # Only change value in parentheses
+            "validationDaysRequested": -(19),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "BB",
+
+            "includeBB": 1,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 3,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(145)),
+            "trainingDaysRequested": -(100),  # Only change value in parentheses
+            "validationDaysRequested": -(25),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "BB",
+
+            "includeBB": 1,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 2,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(105)),
+            "trainingDaysRequested": -(68),  # Only change value in parentheses
+            "validationDaysRequested": -(17),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "BB",
+
+            "includeBB": 1,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M1,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1.5,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 2,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(150)),
+            "trainingDaysRequested": -(104),  # Only change value in parentheses
+            "validationDaysRequested": -(26),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
 
             "timeOfDayStart": "08:30",
             "timeOfDayEnd": "15:00",
@@ -281,21 +547,168 @@ if __name__ == '__main__':
 
             "ratesSymbol": "XAUUSD",
             "ratesTimeFrame": mt5.TIMEFRAME_M5,
-            ###
+
             "MAWindowSize": 15,
             "MAPrice": "close",
 
             "BBPeriod": 20,
             "BBStandardDeviations": 2,
 
-            "atrFactor": 3,
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 4,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(115)),
+            "trainingDaysRequested": -(76),  # Only change value in parentheses
+            "validationDaysRequested": -(19),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "RSI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 1,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 3,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(145)),
+            "trainingDaysRequested": -(100),  # Only change value in parentheses
+            "validationDaysRequested": -(25),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "RSI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 1,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
             "atrPeriod": 14,
 
             "RSIPeriod": 14,
 
             "significantMovementPeriod": 2,
 
-            "windowSize": 12,  # in function: GenerateDataSet
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(105)),
+            "trainingDaysRequested": -(68),  # Only change value in parentheses
+            "validationDaysRequested": -(17),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "RSI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 1,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M1,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1.5,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 2,
+
+            "windowSize": 10,  # in function: GenerateDataSet
             "getNoMovementEvery": 1,  # in function: GenerateDataSet
         }
     ]
@@ -310,14 +723,232 @@ if __name__ == '__main__':
     # datasetName = "No_RSI_No_OBV"
     # datasetName = "No_OBV"
 
-    processes = []
-    # Launch a process for each config
-    for config in configs:
-        print("Launching dataset generation")
-        p = multiprocessing.Process(target=main, kwargs=config)
-        p.start()
-        processes.append(p)
+    # 1. Initialize the Pool with a limit of 8
+    with multiprocessing.Pool(processes=4) as pool:
 
-    # Keep the main script alive while workers run
-    for p in processes:
-        p.join()
+        # 2. Use apply_async because your main() function uses multiple keyword arguments.
+        # This will send all configs to the pool, but only 8 will run at a time.
+        tasks = [pool.apply_async(main, kwds=config) for config in configs]
+
+        # 3. Optional: Wait for all tasks to complete and get their return values
+        for task in tasks:
+            try:
+                result = task.get()
+                print(f"Task completed: {result}")
+            except Exception as e:
+                print(f"A task failed with error: {e}")
+
+    print("All datasets have been generated.")
+
+#    processes = []
+#    # Launch a process for each config
+#    for config in configs:
+#       print("Launching dataset generation")
+#        p = multiprocessing.Process(target=main, kwargs=config)
+#        p.start()
+#        processes.append(p)
+#
+#    # Keep the main script alive while workers run
+#    for p in processes:
+#        p.join()
+
+
+"""
+{
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(115)),
+            "trainingDaysRequested": -(76),  # Only change value in parentheses
+            "validationDaysRequested": -(19),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "No_TI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 3,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(105)),
+            "trainingDaysRequested": -(68),  # Only change value in parentheses
+            "validationDaysRequested": -(17),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "No_TI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M1,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1.5,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 2,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(150)),
+            "trainingDaysRequested": -(104),  # Only change value in parentheses
+            "validationDaysRequested": -(26),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+
+            "datasetName": "No_TI",
+
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 0,
+
+            "createCSV": 1,
+
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M5,
+
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+
+            "atrFactor": 1,
+            "atrPeriod": 14,
+
+            "RSIPeriod": 14,
+
+            "significantMovementPeriod": 4,
+
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        },
+        {
+            "dateEnd": datetime(2026, 1, 31) + timedelta(days=1),
+            "dateStart": datetime(2026, 1, 31) + timedelta(days=1) - timedelta(days=(145)),
+            "trainingDaysRequested": -(100),  # Only change value in parentheses
+            "validationDaysRequested": -(25),  # Only change value in parentheses
+            "threshold_estimationDaysRequested": -(10),  # Only change value in parentheses
+            "backtestDaysRequested": -(10),  # Only change value in parentheses
+    
+            "timeOfDayStart": "08:30",
+            "timeOfDayEnd": "15:00",
+    
+            # Dataset folder structure naming
+            "trainingFolderName": "train",
+            "validationFolderName": "val",
+            "backtestFolderName": "backtesting",
+            "thresholdFolderName": "threshold_estimation",
+    
+            "numberOfClassesTraining": 2,
+            "numberOfClassesValidation": 2,
+            "numberOfClassesBacktesting": 3,
+            "numberOfClassesthreshold_estimation": 3,
+    
+            "datasetName": "No_TI",
+    
+            "includeBB": 0,
+            "includeOBV": 0,
+            "includeRSI": 0,
+    
+            "createCSV": 1,
+    
+            "ratesSymbol": "XAUUSD",
+            "ratesTimeFrame": mt5.TIMEFRAME_M3,
+    
+            "MAWindowSize": 15,
+            "MAPrice": "close",
+    
+            "BBPeriod": 20,
+            "BBStandardDeviations": 2,
+    
+            "atrFactor": 1,
+            "atrPeriod": 14,
+    
+            "RSIPeriod": 14,
+    
+            "significantMovementPeriod": 2,
+    
+            "windowSize": 10,  # in function: GenerateDataSet
+            "getNoMovementEvery": 1,  # in function: GenerateDataSet
+        }
+
+"""

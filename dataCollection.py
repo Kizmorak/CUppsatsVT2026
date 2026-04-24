@@ -8,12 +8,13 @@ import os
 import shutil
 from matplotlib.colors import LinearSegmentedColormap
 
-dateEnd = datetime(2026, 1, 31) + timedelta(days=1) #Set YYYYMMDD for the last day you want data
-dateStart = dateEnd - timedelta(days=(700)) #Can be set to a larger number than needed
-trainingDaysRequested = -(80) #Only change value in parentheses
-validationDaysRequested = -(20) #Only change value in parentheses
-threshold_estimationDaysRequested = -(20) #Only change value in parentheses
-backtestDaysRequested = -(20) #Only change value in parentheses
+inputDays = 72
+dateEnd = datetime(2026, 1, 31) + timedelta(days=1-38) #Set YYYYMMDD for the last day you want data
+dateStart = dateEnd - timedelta(days=(inputDays)) #Can be set to a larger number than needed
+trainingDaysRequested = -(72) #Only change value in parentheses
+validationDaysRequested = -(18) #Only change value in parentheses
+threshold_estimationDaysRequested = -(10) #Only change value in parentheses
+backtestDaysRequested = -(10) #Only change value in parentheses
 
 timeOfDayStart = "08:30"
 timeOfDayEnd = "15:00"
@@ -47,8 +48,11 @@ includeBB = 0
 includeOBV = 0
 includeRSI = 0
 
+atrFactor = 1
+significantMovementPeriod = 4
+
 #Choose what files to create
-generateDataset = 1 #Set to 1 if you want dataset graphs generated
+generateDataset = 0 #Set to 1 if you want dataset graphs generated
 createCSV = 1 #Set to 1 if you want a CSV of the complete dataset data
 ####################################################################################################################
 
@@ -65,14 +69,14 @@ MAPrice = "close"
 BBPeriod = 20
 BBStandardDeviations = 2
 
-atrFactor = 3
+
 atrPeriod = 14
 
 RSIPeriod = 14
 
-significantMovementPeriod = 2
 
-windowSize = 12 #in function: GenerateDataSet
+
+windowSize = 10 #in function: GenerateDataSet
 getNoMovementEvery = 1 #in function: GenerateDataSet
 ####################################################################################################################
 
@@ -102,7 +106,11 @@ def main():
     ratesData = ratesData.between_time(timeOfDayStart, timeOfDayEnd)
     #Prepares data for chart
     ratesData.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+    print(f"Total upp movement: {(ratesData['target'] == 1).sum()}")
+    print(f"Total down movement: {(ratesData['target'] == 2).sum()}")
     print(f"Total data rows: {len(ratesData)}")
+    print(f"Total decisions rows: {((ratesData['target'] == 2).sum())+((ratesData['target'] == 1).sum())}")
+    print(f"Decitions per day: {(((ratesData['target'] == 2).sum())+((ratesData['target'] == 1).sum()))/(inputDays)}")
     ####################################################################################################################
 
     #thresholdFolderName = "threshold_estimation"
@@ -128,10 +136,23 @@ def main():
         if os.path.exists("datasetNew"):
             shutil.rmtree("datasetNew")
             print(f"Deleted existing folder: {"datasetNew"}")
-        GenerateDataSet(threshold_estimationRatesData, thresholdFolderName, windowSize, getNoMovementEvery, numberOfClassesthreshold_estimation, datasetName, includeRSI, includeOBV, includeBB)
-        GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery, numberOfClassesBacktesting, datasetName, includeRSI, includeOBV, includeBB)
-        GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery, numberOfClassesValidation, datasetName, includeRSI, includeOBV, includeBB)
-        GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery, numberOfClassesTraining, datasetName, includeRSI, includeOBV, includeBB)
+            GenerateDataSet(trainingRatesData, trainingFolderName, windowSize, getNoMovementEvery,
+                            numberOfClassesTraining, datasetName, includeRSI, includeOBV, includeBB, atrFactor,
+                            significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                            backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+            GenerateDataSet(validationRatesData, validationFolderName, windowSize, getNoMovementEvery,
+                            numberOfClassesValidation, datasetName, includeRSI, includeOBV, includeBB, atrFactor,
+                            significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                            backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+            GenerateDataSet(threshold_estimationRatesData, thresholdFolderName, windowSize, getNoMovementEvery,
+                            numberOfClassesthreshold_estimation, datasetName, includeRSI, includeOBV, includeBB,
+                            atrFactor, significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                            backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+            GenerateDataSet(backtestRatesData, backtestFolderName, windowSize, getNoMovementEvery,
+                            numberOfClassesBacktesting, datasetName, includeRSI, includeOBV, includeBB, atrFactor,
+                            significantMovementPeriod, trainingDaysRequested, validationDaysRequested,
+                            backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame)
+
 
     if createCSV == 1:
         createCSVFromDataset(ratesData, "fullDataset")
@@ -228,8 +249,7 @@ def ForwardReturns(data, period=10, atrFactor=5):
     data["conflict"] = 0
     data.loc[mask_conflict, "conflict"] = 1
     print(f"Total conflict points found: {data['conflict'].sum()}")
-    print(f"Total upp movement: {(data['target'] == 1).sum()}")
-    print(f"Total down movement: {(data['target'] == 2).sum()}")
+
 
     return data
 
@@ -250,7 +270,7 @@ def AverageTrueRangeCalculator (data, period=14):
 
 
 
-def makePlot(ratesData, saveFolderName, includeRSI, includeOBV, includeBB):
+def makePlot(ratesData, saveFolderName, includeRSI, includeOBV, includeBB, ratesTimeFrame):
     #Day-Change Guard
     if ratesData.index[0].date() != ratesData.index[-1].date():
         print("Skipping: Day change detected.")
@@ -260,10 +280,19 @@ def makePlot(ratesData, saveFolderName, includeRSI, includeOBV, includeBB):
     #Calculate the difference between consecutive timestamps
     time_deltas = ratesData.index.to_series().diff().dropna()
 
-    # Check if any gap is NOT equal to 1 minute
-    if not (time_deltas == pd.Timedelta(minutes=5)).all():
-        print("Skipping: Gap in minute data detected.")
-        return False
+    # Check if any gap is NOT equal to X minute
+    if(ratesTimeFrame == mt5.TIMEFRAME_M5):
+        if not (time_deltas == pd.Timedelta(minutes=5)).all():
+            print("Skipping: Gap in minute data detected.")
+            return False
+    elif (ratesTimeFrame == mt5.TIMEFRAME_M3):
+        if not (time_deltas == pd.Timedelta(minutes=3)).all():
+            print("Skipping: Gap in minute data detected.")
+            return False
+    elif(ratesTimeFrame == mt5.TIMEFRAME_M1):
+        if not (time_deltas == pd.Timedelta(minutes=1)).all():
+            print("Skipping: Gap in minute data detected.")
+            return False
 
     #TI inclusion based on configuration
     if includeTIs:
@@ -327,14 +356,16 @@ def makePlot(ratesData, saveFolderName, includeRSI, includeOBV, includeBB):
     plt.close()
     return ""
 
-def GenerateDataSet(ratesData, saveFolderName, window, getNoMovementEvery, numberOfClasses, datasetName, includeRSI, includeOBV, includeBB):
+def GenerateDataSet(ratesData, saveFolderName, window, getNoMovementEvery, numberOfClasses, datasetName, includeRSI,
+                    includeOBV, includeBB, atrFactor, significantMovementPeriod, trainingDaysRequested,
+                    validationDaysRequested, backtestDaysRequested, threshold_estimationDaysRequested, ratesTimeFrame):
     # Create variables used by function
    # dateEnd = datetime(2026, 3, 20) + timedelta(days=1)
     #dataset_No_TIs_T80V20B5_20260320_2classTV_3classB
     dateStr = (dateEnd - timedelta(days=1)).strftime('%Y%m%d')
-    folderPrefix = (f"dataset_{datasetName}_T{-trainingDaysRequested}V{-validationDaysRequested}B{-backtestDaysRequested}"
-                    f"TH{-threshold_estimationDaysRequested}_{dateStr}_class{numberOfClassesTraining}T"
-                    f"{numberOfClassesValidation}V{numberOfClassesBacktesting}B{numberOfClassesthreshold_estimation}TH")
+    folderPrefix = (f"{datasetName}_{-trainingDaysRequested}_{-validationDaysRequested}_{-backtestDaysRequested}"
+                    f"_{-threshold_estimationDaysRequested}_{dateStr}_"
+                    f"{window}_{atrFactor}_{significantMovementPeriod}")
     saveFolderName = os.path.join(folderPrefix, saveFolderName)
     total_rows = len(ratesData)
     noMovementCounter = 0
@@ -363,18 +394,19 @@ def GenerateDataSet(ratesData, saveFolderName, window, getNoMovementEvery, numbe
 
         #Check what movement is valid and send to plotting function
         current_target = subset["target"].iloc[-1]
-        if (subset["conflict"] == 0).all() and "backtesting" not in saveFolderName.lower():
+        #if (subset["conflict"] == 0).all() and "backtesting" not in saveFolderName.lower():
+        if (subset["conflict"] == 0).all():
             if current_target == 1:
-                makePlot(subset, os.path.join(saveFolderName, "upMovement"), includeRSI, includeOBV, includeBB)
+                makePlot(subset, os.path.join(saveFolderName, "upMovement"), includeRSI, includeOBV, includeBB,ratesTimeFrame)
             elif current_target == 2:
-                makePlot(subset, os.path.join(saveFolderName, "downMovement"), includeRSI, includeOBV, includeBB)
+                makePlot(subset, os.path.join(saveFolderName, "downMovement"), includeRSI, includeOBV, includeBB,ratesTimeFrame)
             elif current_target == 0:
                 if numberOfClasses == 3:
                     if noMovementCounter % getNoMovementEvery == 0:
-                        makePlot(subset, os.path.join(saveFolderName, "noMovement"), includeRSI, includeOBV, includeBB)
+                        makePlot(subset, os.path.join(saveFolderName, "noMovement"), includeRSI, includeOBV, includeBB,ratesTimeFrame)
                     noMovementCounter += 1
-        elif (subset["conflict"] == 0).all():
-            makePlot(subset, os.path.join(saveFolderName), includeRSI, includeOBV, includeBB)
+        #elif (subset["conflict"] == 0).all():
+        #    makePlot(subset, os.path.join(saveFolderName), includeRSI, includeOBV, includeBB)
     return ""
 
 def createCSVFromDataset(dataset, filename="output.csv"):
