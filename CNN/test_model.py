@@ -35,11 +35,14 @@ class TestingModel:
         # --------------------------
         self.model_version = model_version
 
-        self.model_name = re.match(r'^(.+?)_\d{8}_\d{6}', model_version).group(1)  # extract model name from version string
+        # Remove only the trailing run timestamp suffix ("__YYYYMMDD_HHMMSS").
+        # Keeps full model identifiers like BB_120_30_30_30_20260131_12_2_2 intact.
+        self.model_name = re.sub(r"__\d{8}_\d{6}$", "", model_version)
+        model_dir = Path("final_models") / self.model_name / self.model_version
 
-        self.model_path = f"final_models/{self.model_name}/{self.model_version}/{self.model_version}.pth"
+        self.model_path = str(model_dir / f"{self.model_version}.pth")
 
-        with open(f"final_models/{self.model_name}/{self.model_version}/thresholds_summary.txt", "r") as f:
+        with open(model_dir / "thresholds_summary.txt", "r") as f:
             line = f.readline()
             try:
                 _, low_str, high_str = line.strip().split()
@@ -186,8 +189,18 @@ class TestingModel:
             plus = dt + timedelta(minutes=31)
             return plus.strftime("%Y-%m-%d %H:%M:00")
 
+        def unique_path(path):
+            candidate = Path(path)
+            counter = 1
+            while candidate.exists():
+                candidate = candidate.with_name(f"{candidate.stem}_{counter}{candidate.suffix}")
+                counter += 1
+            return candidate
+
         def save_3_class_csv_predictions(self, backtest_3_class_preds_and_paths):
-            out_path = Path(f"final_models/{self.model_name}/{self.model_version}/{self.model_version}_Backtesting_predictions.csv")
+            out_path = unique_path(
+                f"final_models/{self.model_name}/{self.model_version}/{self.model_version}_Backtesting_predictions.csv"
+            )
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:
@@ -210,7 +223,10 @@ class TestingModel:
             print(f"Saved CSV. Skipped {skipped} NOMOV predictions.")
 
         def save_2_class_csv_predictions(self, backtest_2_class_preds_and_paths):
-            out_path = Path(f"final_models/{self.model_name}/{self.model_version}/{self.model_version}_Backtesting_predictions_2_class.csv")
+            out_path = unique_path(
+                f"final_models/{self.model_name}/{self.model_version}/"
+                f"{self.model_version}_Backtesting_predictions_2_class.csv"
+            )
             out_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(out_path, "w", newline="", encoding="utf-8") as f:

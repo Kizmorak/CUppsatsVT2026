@@ -24,14 +24,12 @@ sys.stdout.flush()
 
 
 class ModelNames(Enum):
-    ALL_TIs = "all_TIs"
-    NO_TIs = "No_TIs"
-    OBV = "OBV"
-    RSI = "RSI"
-    BB = "BB"
-    NO_OBV = "No_OBV"
-    NO_TIs_5 = "No_TIs_5"
-    M5_RSI = "M5_RSI"
+    NO_TI_68_17_10_10_20251224_10_15_2 = "No_TI_68_17_10_10_20251224_10_15_2"
+    NO_TI_76_19_10_10_20251224_10_1_3 = "No_TI_76_19_10_10_20251224_10_1_3"
+    NO_TI_100_25_10_10_20251224_10_1_2 = "No_TI_100_25_10_10_20251224_10_1_2"
+    NO_TI_104_26_10_10_20251224_10_1_4 = "No_TI_104_26_10_10_20251224_10_1_4"
+    RSI_104_26_10_10_20251224_10_1_4 = "RSI_104_26_10_10_20251224_10_1_4"
+    BB_104_26_10_10_20251224_10_1_4 = "BB_104_26_10_10_20251224_10_1_4"
 
     def __str__(self):
         return str(self.value)
@@ -73,7 +71,7 @@ class FilteredRemappedDataset(Dataset):
 # Variables and hyperparameters
 # -------------------------
 # Model and training parameters
-default_model_name = ModelNames.ALL_TIs  # Contains "train", "val", "threshold_estimation", and "backtesting".
+default_model_name = ModelNames.NO_TI_68_17_10_10_20251224_10_15_2  # Contains "train", "val", "threshold_estimation", and "backtesting".
 
 # Training parameters
 default_max_epochs = 30
@@ -111,7 +109,7 @@ class ModelMaker:
         backbone_lr_scale=default_backbone_lr_scale,
     ):
         self.model_name = model_name
-        self.model_version = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.model_version = f"{model_name}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.max_epochs = max_epochs
         self.noMov_ratio = noMov_ratio
         self.num_stages_to_unfreeze = num_stages_to_unfreeze

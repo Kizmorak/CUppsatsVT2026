@@ -1,0 +1,113 @@
+Using device: cpu
+Optimizer setup: base_lr=2.00e-04, backbone_lr=2.00e-05, head_params=4, backbone_params=88, weight_decay=1.00e-02
+
+2026-04-22 22:01:16
+--------------------------------------------------
+Configuration summary:
+--------------------------------------------------
+Model name: No_TI_100_25_10_10_20251224_10_1_2
+Max number of epochs: 12
+Base learning rate: 0.0002
+Backbone LR scale: 0.1
+Auto-tuning NOMOV thresholds
+Number of stages to unfreeze for fine-tuning: 2
+--------------------------------------------------
+Saved embedding plot to final_models/No_TI_100_25_10_10_20251224_10_1_2/No_TI_100_25_10_10_20251224_10_1_2__20260422_220115/No_TI_100_25_10_10_20251224_10_1_2__20260422_220115_preembeddings.png
+Epoch 1
+Train Loss: 0.7017, Train Accuracy: 0.5111, Train Macro F1: 0.5111
+Val Loss: 0.6967, Val Accuracy: 0.5028, Val Macro F1: 0.4636
+Epoch 2
+Train Loss: 0.6921, Train Accuracy: 0.5243, Train Macro F1: 0.5003
+Val Loss: 0.6978, Val Accuracy: 0.5151, Val Macro F1: 0.3400
+Epoch 3
+Train Loss: 0.6913, Train Accuracy: 0.5293, Train Macro F1: 0.5239
+Val Loss: 0.7038, Val Accuracy: 0.4827, Val Macro F1: 0.4152
+Epoch 4
+Train Loss: 0.6892, Train Accuracy: 0.5420, Train Macro F1: 0.5177
+Val Loss: 0.6958, Val Accuracy: 0.4816, Val Macro F1: 0.4801
+Epoch 5
+Train Loss: 0.6919, Train Accuracy: 0.5179, Train Macro F1: 0.5179
+Val Loss: 0.6975, Val Accuracy: 0.4648, Val Macro F1: 0.4591
+Epoch 6
+Train Loss: 0.6822, Train Accuracy: 0.5579, Train Macro F1: 0.5568
+Val Loss: 0.7080, Val Accuracy: 0.4983, Val Macro F1: 0.4746
+Epoch 7
+Train Loss: 0.6710, Train Accuracy: 0.5847, Train Macro F1: 0.5788
+Val Loss: 0.7441, Val Accuracy: 0.4648, Val Macro F1: 0.4583
+Epoch 8
+Train Loss: 0.6424, Train Accuracy: 0.6282, Train Macro F1: 0.6246
+Val Loss: 0.7847, Val Accuracy: 0.4425, Val Macro F1: 0.4424
+Epoch 9
+Train Loss: 0.5883, Train Accuracy: 0.6773, Train Macro F1: 0.6768
+Val Loss: 0.8332, Val Accuracy: 0.4894, Val Macro F1: 0.4888
+Epoch 10
+Train Loss: 0.5372, Train Accuracy: 0.7313, Train Macro F1: 0.7313
+Val Loss: 0.8679, Val Accuracy: 0.4771, Val Macro F1: 0.4769
+Epoch 11
+Train Loss: 0.5339, Train Accuracy: 0.7295, Train Macro F1: 0.7293
+Val Loss: 0.8655, Val Accuracy: 0.4704, Val Macro F1: 0.4704
+Epoch 12
+Train Loss: 0.5159, Train Accuracy: 0.7431, Train Macro F1: 0.7431
+Val Loss: 0.8850, Val Accuracy: 0.4726, Val Macro F1: 0.4725
+Saved embedding plot to final_models/No_TI_100_25_10_10_20251224_10_1_2/No_TI_100_25_10_10_20251224_10_1_2__20260422_220115/No_TI_100_25_10_10_20251224_10_1_2__20260422_220115_postembeddings.png
+
+
+--------------------------------------------------
+2 class validation summary:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement']
+[[ 91  85]
+ [102  78]]
+
+Total samples: 356
+Correct predictions: 169
+Accuracy: 0.4747
+Average confidence: 0.6930
+Macro F1: 0.4740
+
+
+--------------------------------------------------
+Threshold setting summary:
+--------------------------------------------------
+No manual thresholds applied. Thresholds will be auto-tuned based on noMov_ratio and/or automatic threshold estimation.
+
+Threshold auto-tune (sweep): objective=macro_f1, best_score=0.3294, best_balanced_acc=0.3299, best_low=0.1961, best_high=0.7502
+Thresholds used: low=0.1961, high=0.7502
+
+
+--------------------------------------------------
+Final evaluation on threshold_estimation set:
+--------------------------------------------------
+Matrix labels order: ['downMovement', 'upMovement', 'noMovement']
+[[ 21  25 130]
+ [ 31  25 124]
+ [107 119 616]]
+
+Total samples: 1198
+Correct predictions: 662
+High confidence samples: 169
+Low confidence samples: 159
+Average confidence: 0.4763
+Uncertain samples: 870
+
+3 class confidence stats by predicted class:
+downMovement    | n= 159 | min=0.0160 | mean=0.1256 | max=0.1954
+upMovement      | n= 169 | min=0.7505 | mean=0.8355 | max=0.9818
+noMovement      | n= 870 | min=0.1965 | mean=0.4706 | max=0.7493
+
+3 class confidence stats by true class:
+downMovement    | n= 176 | mean_prob=0.4914 | std_prob=0.2255 | recall=0.1193
+upMovement      | n= 180 | mean_prob=0.4622 | std_prob=0.2266 | recall=0.1389
+noMovement      | n= 842 | mean_prob=0.4762 | std_prob=0.2305 | recall=0.7316
+
+Balanced accuracy (macro recall): 0.3299
+Macro F1: 0.3294
+
+3 class adjusted metrics:
+downMovement    | support= 176 | precision=0.1321 | recall=0.1193 | f1=0.1254
+upMovement      | support= 180 | precision=0.1479 | recall=0.1389 | f1=0.1433
+noMovement      | support= 842 | precision=0.7080 | recall=0.7316 | f1=0.7196
+
+A/B subset accuracy (ignoring NOMOV): 0.1292 (n=356)
+Starting training for model: No_TI_100_25_10_10_20251224_10_1_2__20260422_220115
+Saved Grad-CAMs to: final_models/No_TI_100_25_10_10_20251224_10_1_2/No_TI_100_25_10_10_20251224_10_1_2__20260422_220115
