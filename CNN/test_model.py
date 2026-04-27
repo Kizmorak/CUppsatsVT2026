@@ -96,24 +96,26 @@ class TestingModel:
         ])
 
         # Set up datasets and dataloaders for backtesting
-        self.backtest_dataset = BacktestingDataset(
-            root_dir=f"datasets/{self.model_name}/backtesting",
-            transform=self.transform
-        )
+        #self.backtest_dataset = BacktestingDataset(
+        #    root_dir=f"datasets/{self.model_name}/backtesting",
+        #    transform=self.transform
+        #)
 
-        self.backtest_loader = torch.utils.data.DataLoader(
-            self.backtest_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers
-        )
+        #self.backtest_loader = torch.utils.data.DataLoader(
+        #    self.backtest_dataset,
+        #    batch_size=self.batch_size,
+        #    shuffle=False,
+        #    num_workers=self.num_workers
+        #)
 
     # -------------------------
     # Prediction functions
     # -------------------------
     def image_to_prediction(self):
 
-        folder = Path("inputGraph/" + self.model_name + "/")
+        folder = Path("inputGraph/" + self.model_version + "/")
+        print(self.model_version)
+        print(f"DEBUG: Looking for PNGs in: {folder.absolute()}")
         img_path = next(folder.glob("*.png"))
 
         # Load and preprocess the image
