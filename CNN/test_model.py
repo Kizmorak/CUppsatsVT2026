@@ -84,7 +84,7 @@ class TestingModel:
         print(f"Model loaded from: {self.model_path}")
 
         # --------------------------
-        # Set up image transformations (same as training) and dataloaders for backtesting
+        # Set up image transformations (same as training) and dataloaders for live testing and backtesting
         # --------------------------
         mean = [0.485, 0.456, 0.406]
         std = [0.229, 0.224, 0.225]
@@ -94,19 +94,6 @@ class TestingModel:
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
-
-        # Set up datasets and dataloaders for backtesting
-        self.backtest_dataset = BacktestingDataset(
-            root_dir=f"datasets/{self.model_name}/backtesting",
-            transform=self.transform
-        )
-
-        self.backtest_loader = torch.utils.data.DataLoader(
-            self.backtest_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers
-        )
 
     # -------------------------
     # Prediction functions
@@ -143,8 +130,21 @@ class TestingModel:
     def backtesting_dataset_to_predictions(self):
         nomov_probs_and_paths = []
 
+        # Set up datasets and dataloaders for backtesting
+        backtest_dataset = BacktestingDataset(
+            root_dir=f"datasets/{self.model_name}/backtesting",
+            transform=self.transform
+        )
+
+        backtest_loader = torch.utils.data.DataLoader(
+            backtest_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers
+        )
+
         with torch.no_grad():
-            for images, paths in self.backtest_loader:
+            for images, paths in backtest_loader:
                 images = images.to(self.device)
                 outputs = self.model(images)
                 probs = torch.sigmoid(outputs).squeeze(1).flatten()

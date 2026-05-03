@@ -117,37 +117,9 @@ if __name__ == '__main__':
     # Training the models
     # -------------------------
 
-    # model_name = None
+    model_name = None
     # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.NO_TI_68_17_10_10_20251224_10_15_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.NO_TI_76_19_10_10_20251224_10_1_3
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
+    #     for i in range(1):
     #         model_name = model_maker.ModelNames.NO_TI_100_25_10_10_20251224_10_1_2
     #         make_night_model(
     #             model_name=model_name,
@@ -159,176 +131,22 @@ if __name__ == '__main__':
     # except Exception as e:
     #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
 
-    model_name = None
-    try:
-        for i in range(2):
-            model_name = model_maker.ModelNames.OBV_104_26_10_10_20251224_10_1_4
-            make_night_model(
-                model_name=model_name,
-                num_stages_to_unfreeze=2,
-                base_lr=2e-4,
-                backbone_lr_scale=0.1,
-                max_epochs=12,
-            )
-    except Exception as e:
-        print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.OBV_98_14_14_14_20260131_10_1_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.BB_98_14_14_14_20260131_10_1_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.OBV_70_10_10_10_20260131_10_1_3
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.BB_70_10_10_10_20260131_10_1_3
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.OBV_84_12_12_12_20260131_10_1_4
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.BB_84_12_12_12_20260131_10_1_4
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.RSI_70_10_10_10_20260131_10_15_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.RSI_84_12_12_12_20260131_10_1_4
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.RSI_98_14_14_14_20260131_10_1_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
-    # model_name = None
-    # try:
-    #     for i in range(2):
-    #         model_name = model_maker.ModelNames.RSI_70_10_10_10_20260131_10_1_3
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=3,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
-
     # -------------------------
     # Testing the models
     # -------------------------
 
-    # model_version = "NO_TI_70_10_10_10_20260131_10_15_2__20260420_153000"  # specify the model version you want to test here
+    # model_version = "No_TI_68_17_10_10_20251224_10_15_2__20260422_211057"  # specify the model version you want to test here
 
+    # # backtesting (predictions on backtesting dataset, saved to CSV)
     # try:
     #     new_test_model = test_model.TestingModel(model_version)
     #     new_test_model.backtesting_dataset_to_predictions()
     # except Exception as e:
     #     print(f"Error occurred while testing model: {model_version}: {e}")
 
-    # for i in range(4):
-    #     try:
-    #         model_version = "NO_TI_70_10_10_10_20260131_10_15_2__20260420_153000"
-    #         new_test_model = test_model.TestingModel(model_version)
-    #         new_test_model.image_to_prediction()
-    #     except Exception as e:
-    #         print(f"Error occurred while testing model: {model_version}: {e}")
+    # # live testing (image-to-prediction)
+    # try:
+    #     new_test_model = test_model.TestingModel(model_version)
+    #     new_test_model.image_to_prediction()
+    # except Exception as e:
+    #     print(f"Error occurred while testing model: {model_version}: {e}")

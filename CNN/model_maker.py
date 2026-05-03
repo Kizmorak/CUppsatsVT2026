@@ -30,6 +30,7 @@ class ModelNames(Enum):
     NO_TI_104_26_10_10_20251224_10_1_4 = "No_TI_104_26_10_10_20251224_10_1_4"
     RSI_104_26_10_10_20251224_10_1_4 = "RSI_104_26_10_10_20251224_10_1_4"
     BB_104_26_10_10_20251224_10_1_4 = "BB_104_26_10_10_20251224_10_1_4"
+    OBV_104_26_10_10_20251224_10_1_4 = "OBV_104_26_10_10_20251224_10_1_4"
 
     def __str__(self):
         return str(self.value)
@@ -161,27 +162,30 @@ def transforms_setup():
     mean = [0.485, 0.456, 0.406]
     std = [0.229, 0.224, 0.225]
 
+    base_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+
     # Limited data augmentation for fine-tuning
     if use_random_affine:
         train_transform = transforms.Compose([
+            base_transform,
             transforms.RandomAffine(
                 degrees=0,
                 translate=(0.03, 0.03),
                 scale=(0.97, 1.03)
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
+            )
         ])
     else:
         train_transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
+            base_transform
         ])
 
     # Validation/backtesting should be deterministic (no random augmentation).
     eval_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean, std)
+        base_transform
     ])
     return train_transform, eval_transform
 

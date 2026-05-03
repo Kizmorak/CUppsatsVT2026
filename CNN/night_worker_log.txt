@@ -1,0 +1,19 @@
+Loaded thresholds from file for csv: low=0.4515, high=0.6516
+Model loaded from: final_models\No_TI_68_17_10_10_20251224_10_15_2\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057.pth
+Error occurred while testing model: No_TI_68_17_10_10_20251224_10_15_2__20260422_211057: [WinError 3] The system cannot find the path specified: 'datasets/No_TI_68_17_10_10_20251224_10_15_2/backtesting'
+Loaded thresholds from file for csv: low=0.4515, high=0.6516
+Model loaded from: final_models\No_TI_68_17_10_10_20251224_10_15_2\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057.pth
+Prediction : 
+Probability: 0.5375
+Loaded thresholds from file for csv: low=0.4515, high=0.6516
+Model loaded from: final_models\No_TI_68_17_10_10_20251224_10_15_2\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057.pth
+Prediction : 
+Probability: 0.5375
+Loaded thresholds from file for csv: low=0.4515, high=0.6516
+Model loaded from: final_models\No_TI_68_17_10_10_20251224_10_15_2\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057.pth
+Prediction : 
+Probability: 0.5375
+Loaded thresholds from file for csv: low=0.4515, high=0.6516
+Model loaded from: final_models\No_TI_68_17_10_10_20251224_10_15_2\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057\No_TI_68_17_10_10_20251224_10_15_2__20260422_211057.pth
+Prediction : 
+Probability: 0.5375
