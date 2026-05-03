@@ -100,7 +100,9 @@ class TestingModel:
     # -------------------------
     def image_to_prediction(self):
 
-        folder = Path("inputGraph/" + self.model_name + "/")
+        folder = Path("inputGraph/" + self.model_version + "/")
+        print(self.model_version)
+        print(f"DEBUG: Looking for PNGs in: {folder.absolute()}")
         img_path = next(folder.glob("*.png"))
 
         # Load and preprocess the image
