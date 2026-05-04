@@ -12,10 +12,11 @@ import gradcam_visualize
 # You can adjust the parameters in the loops below to test different configurations as needed.
 # Parameters:   max number of epochs    (with early stopping, so it won't necessarily run for all epochs)
 #               model name              (remember it's enums)
+#               num_stages_to_unfreeze  (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
+#               base learning rate      (for the head, the backbone will be scaled by backbone_lr_scale)
+#               backbone_lr_scale       (learning rate scaling factor for the backbone compared to the head)
 #               thresholds              (auto-tuned by default, but you can specify manual thresholds for testing))
 #               expected nomov ratio    (used for auto-tuning thresholds)
-#               num_stages_to_unfreeze  (0 = only head, 1 = last stage + head, 2 = last 2 stages + head, etc.)
-
 
 sys.stdout = custom_tee.CustomTee("night_worker_log.txt")
 
@@ -94,7 +95,9 @@ def make_night_model(
     num_stages_to_unfreeze=2,
     base_lr=2e-4,
     backbone_lr_scale=0.1,
-    max_epochs=30,
+    max_epochs=12,
+    thresholds=(0.0, 0.0),  # (low_threshold, high_threshold) - set to (0, 0) to use auto-tuning
+    expected_nomov_ratio=0.0,
 ):
     new_model = model_maker.ModelMaker(
         model_name=model_name,
@@ -102,11 +105,15 @@ def make_night_model(
         base_lr=base_lr,
         backbone_lr_scale=backbone_lr_scale,
         max_epochs=max_epochs,
+        thresholds=thresholds,
+        noMov_ratio=expected_nomov_ratio,
     )
     print(f"Starting training for model: {new_model.model_version}")
 
     run_gradcam_for_model(new_model)
     copy_log_to_backup(new_model)
+
+    # After training, run backtesting to generate predictions on the backtesting dataset and save as .csv
     new_test_model = test_model.TestingModel(new_model.model_version)
     new_test_model.backtesting_dataset_to_predictions()
 
@@ -117,27 +124,34 @@ if __name__ == '__main__':
     # Training the models
     # -------------------------
 
-    model_name = None
-    # try:
-    #     for i in range(1):
-    #         model_name = model_maker.ModelNames.NO_TI_100_25_10_10_20251224_10_1_2
-    #         make_night_model(
-    #             model_name=model_name,
-    #             num_stages_to_unfreeze=2,
-    #             base_lr=2e-4,
-    #             backbone_lr_scale=0.1,
-    #             max_epochs=12,
-    #         )
-    # except Exception as e:
-    #     print(f"Error occurred while training and evaluating model: {model_name}: {e}")
+    # model_names_to_train = [  # works with both string names and model_maker.ModelNames enums
+    #     "No_TI_104_26_10_10_20251224_10_1_4",
+    #     "RSI_104_26_10_10_20251224_10_1_4",
+    #     "BB_104_26_10_10_20251224_10_1_4",
+    #     "OBV_104_26_10_10_20251224_10_1_4",
+    #     "No_TI_104_26_10_10_20251224_10_1_4",
+    #     "No_TI_76_19_10_10_20251224_10_1_3",
+    #     "No_TI_68_17_10_10_20251224_10_15_2"
+    # ]
+
+    # for model_name in model_names_to_train:
+    #     try:
+    #         for i in range(1):  # you can increase this to run multiple times for the same model configuration
+    #             make_night_model(
+    #                 model_name=model_name,
+    #                 max_epochs=12
+    #             )
+    #     except Exception as e:
+    #         print(f"Error occurred while training and evaluating model: {model_name}: {e}")
 
     # -------------------------
     # Testing the models
     # -------------------------
 
-    # model_version = "No_TI_68_17_10_10_20251224_10_15_2__20260422_211057"  # specify the model version you want to test here
+    # # specify the model version you want to test here
+    # model_version = "No_TI_104_26_10_10_20251224_10_1_4__20260422_221121"
 
-    # # backtesting (predictions on backtesting dataset, saved to CSV)
+    # # backtesting (runs when you call make_night_model, but you can also run it separately if needed)
     # try:
     #     new_test_model = test_model.TestingModel(model_version)
     #     new_test_model.backtesting_dataset_to_predictions()
@@ -150,3 +164,5 @@ if __name__ == '__main__':
     #     new_test_model.image_to_prediction()
     # except Exception as e:
     #     print(f"Error occurred while testing model: {model_version}: {e}")
+
+    pass

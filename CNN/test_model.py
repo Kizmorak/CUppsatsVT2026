@@ -5,7 +5,6 @@ from torchvision import transforms
 from PIL import Image
 from pathlib import Path
 import csv
-import os
 from torch.utils.data import Dataset
 import custom_tee
 import sys
@@ -101,8 +100,6 @@ class TestingModel:
     def image_to_prediction(self):
 
         folder = Path("inputGraph/" + self.model_version + "/")
-        print(self.model_version)
-        print(f"DEBUG: Looking for PNGs in: {folder.absolute()}")
         img_path = next(folder.glob("*.png"))
 
         # Load and preprocess the image
@@ -193,9 +190,10 @@ class TestingModel:
 
         def unique_path(path):
             candidate = Path(path)
+            original_stem = candidate.stem
             counter = 1
             while candidate.exists():
-                candidate = candidate.with_name(f"{candidate.stem}_{counter}{candidate.suffix}")
+                candidate = candidate.with_name(f"{original_stem}({counter}){candidate.suffix}")
                 counter += 1
             return candidate
 
@@ -249,15 +247,15 @@ class TestingModel:
         save_2_class_csv_predictions(self, backtest_2_class_preds_and_paths)
 
 
-class BacktestingDataset(Dataset):
+class BacktestingDataset(Dataset):  # Combines the 3 backtesting classes into one dataset for testing purposes
     def __init__(self, root_dir, transform=None):
         self.root_dir = root_dir
         self.transform = transform
 
         self.image_paths = [
-            os.path.join(root_dir, f)
-            for f in os.listdir(root_dir)
-            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            str(path)
+            for path in sorted(Path(root_dir).rglob("*"))
+            if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
         ]
 
         self.image_paths.sort()  # keep time order

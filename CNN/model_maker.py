@@ -4,7 +4,7 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision.datasets import ImageFolder
-from sklearn.metrics import confusion_matrix, f1_score, balanced_accuracy_score, accuracy_score
+from sklearn.metrics import confusion_matrix, f1_score, accuracy_score
 import numpy as np
 import argparse
 from enum import Enum
@@ -36,8 +36,7 @@ class ModelNames(Enum):
         return str(self.value)
 
 
-# Dataset wrapper to filter and remap classes, used to transform datasets for 2 class backtesting.
-class FilteredRemappedDataset(Dataset):
+class ThresholdDataset(Dataset):  # To filter out the non-nomov classes from the threshold estimation dataset
     def __init__(self, base_dataset, allowed_class_names):
         self.base_dataset = base_dataset
         self.transform = base_dataset.transform
@@ -71,13 +70,12 @@ class FilteredRemappedDataset(Dataset):
 # -------------------------
 # Variables and hyperparameters
 # -------------------------
-# Model and training parameters
-default_model_name = ModelNames.NO_TI_68_17_10_10_20251224_10_15_2  # Contains "train", "val", "threshold_estimation", and "backtesting".
+# Model name, used for dataset paths and output organization. Adjust as needed for different datasets or configurations.
+default_model_name = ModelNames.NO_TI_104_26_10_10_20251224_10_1_4
 
 # Training parameters
-default_max_epochs = 30
-default_noMov_ratio = 0.0  # Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning)
-# Maybe do: number of layers to unfreeze for fine-tuning (0 = only head, 1 = last stage + head, etc.)
+default_max_epochs = 12
+default_noMov_ratio = 0.0  # Expected NOMOV ratio for auto-tuning with prior_quantille instead of sweep strategy
 default_num_stages_to_unfreeze = 1
 # Augmentation options
 use_random_affine = True
@@ -93,7 +91,7 @@ weight_decay = 1e-2
 
 # Auto-tuning options for thresholding
 auto_tune_thresholds = True
-# Manual fallback thresholds (used when auto_tune_thresholds == False)
+# Manual fallback thresholds, autotuning will be disabled if these are set to valid values (0-1 and high > low)
 low_threshold = 0.0
 high_threshold = 0.0
 
@@ -103,12 +101,19 @@ class ModelMaker:
         self,
         model_name=default_model_name,
         max_epochs=default_max_epochs,
-        noMov_ratio=0.0,
-        num_stages_to_unfreeze=1,
+        noMov_ratio=default_noMov_ratio,
+        num_stages_to_unfreeze=default_num_stages_to_unfreeze,
         thresholds=(low_threshold, high_threshold),
         base_lr=default_base_lr,
         backbone_lr_scale=default_backbone_lr_scale,
     ):
+
+        model_name, max_epochs, noMov_ratio, num_stages_to_unfreeze, thresholds, backbone_lr_scale = (
+            validate_configuration_inputs(
+                model_name, max_epochs, noMov_ratio, num_stages_to_unfreeze, thresholds, backbone_lr_scale
+            )
+        )
+
         self.model_name = model_name
         self.model_version = f"{model_name}__{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self.max_epochs = max_epochs
@@ -403,9 +408,15 @@ def visualize_embeddings(self, pre_training=False):
     plt.tight_layout()
 
     if pre_training:
-        out_path = Path("final_models") / model_name_str / self.model_version / f"{self.model_version}_preembeddings.png"
+        out_path = (
+            Path("final_models") / model_name_str / self.model_version
+            / f"{self.model_version}_preembeddings.png"
+        )
     else:
-        out_path = Path("final_models") / model_name_str / self.model_version / f"{self.model_version}_postembeddings.png"
+        out_path = (
+            Path("final_models") / model_name_str / self.model_version
+            / f"{self.model_version}_postembeddings.png"
+        )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, dpi=200)
     plt.close()
@@ -517,9 +528,18 @@ def train_model(self):
         print(f"Val Loss: {val_loss:.4f}, Val Accuracy: {val_acc:.4f}, Val Macro F1: {val_macro_f1:.4f}")
 
         self.scheduler.step()
-    print_2var_plots(self, history["loss"], history["val_loss"], "Train Loss", "Val Loss", "Loss Curves", "Epoch", "Loss")
-    print_2var_plots(self, history["accuracy"], history["val_accuracy"], "Train Accuracy", "Val Accuracy", "Accuracy Curves", "Epoch", "Accuracy")
-    print_2var_plots(self, history["macro_f1"], history["val_macro_f1"], "Train Macro F1", "Val Macro F1", "Macro F1 Curves", "Epoch", "Macro F1 Score")
+    print_2var_plots(
+        self, history["loss"], history["val_loss"], "Train Loss", "Val Loss",
+        "Loss Curves", "Epoch", "Loss"
+    )
+    print_2var_plots(
+        self, history["accuracy"], history["val_accuracy"], "Train Accuracy",
+        "Val Accuracy", "Accuracy Curves", "Epoch", "Accuracy"
+    )
+    print_2var_plots(
+        self, history["macro_f1"], history["val_macro_f1"], "Train Macro F1",
+        "Val Macro F1", "Macro F1 Curves", "Epoch", "Macro F1 Score"
+    )
 
 
 # -------------------------
@@ -534,7 +554,7 @@ def tune_and_evaluate_model(self):
         backtest_2_class_labels = []
         backtest_2_class_confidences = []
 
-        backtest_2_class_dataset = FilteredRemappedDataset(
+        backtest_2_class_dataset = ThresholdDataset(
             self.fix_thresholds_dataset,
             ["downMovement", "upMovement"],
         )
@@ -624,8 +644,9 @@ def tune_and_evaluate_model(self):
         print("-" * 50)
 
         # Adjust thresholds
-        if manual_high_threshold > 0 or manual_low_threshold > 0:
+        if manual_high_threshold > 0 and manual_low_threshold >= 0 and manual_high_threshold > manual_low_threshold:
             self.thresholds = manual_high_threshold, manual_low_threshold
+            self.auto_tune_thresholds = False
             print(f"Manual thresholds applied: low={manual_low_threshold:.4f}, high={manual_high_threshold:.4f}")
         else:
             print(
@@ -633,7 +654,8 @@ def tune_and_evaluate_model(self):
                 "noMov_ratio and/or automatic threshold estimation."
             )
             new_thresholds = threshold_estimator.ThresholdEstimator(
-                self.model, nomov_probs, nomov_labels, self.noMov_ratio, threshold_sweep_steps=20, threshold_sweep_objective="macro_f1"
+                self.model, nomov_probs, nomov_labels, self.noMov_ratio,
+                threshold_sweep_steps=20, threshold_sweep_objective="macro_f1"
             )
             self.thresholds = new_thresholds.estimate_thresholds()
 
@@ -743,83 +765,116 @@ def save_model(self):
     torch.save(self.model.state_dict(), out_path)
 
 
+# -------------------------
+# Configuration input validation
+# -------------------------
+def validate_configuration_inputs(
+    model_name, max_epochs, noMov_ratio, num_stages_to_unfreeze,
+    manual_thresholds, backbone_lr_scale
+):
+    # -------------------------
+    # Validate configuration inputs
+    # -------------------------
+    # Validate manual thresholds if provided (if both are 0, assume auto-tuning is desired)
+    if len(manual_thresholds) != 2:
+        raise ValueError("manual_thresholds argument must contain exactly 2 values: low and high confidence thresholds")
+    elif manual_thresholds[0] == 0 and manual_thresholds[1] == 0:
+        low_threshold, high_threshold = 0.0, 0.0
+    else:
+        if (
+            manual_thresholds[0] < 0.0 or manual_thresholds[0] > 1.0
+            or manual_thresholds[1] < 0.0 or manual_thresholds[1] > 1.0
+        ):
+            raise ValueError(f"Manual thresholds must be between 0 and 1. Got {manual_thresholds}")
+        elif manual_thresholds[0] >= manual_thresholds[1]:
+            raise ValueError(
+                f"Manual thresholds must be between 0 and 1. Got {manual_thresholds}"
+            )
+        else:
+            low_threshold, high_threshold = manual_thresholds
+
+    # Validate noMov_ratio and adjust auto-tuning strategy if needed
+    if noMov_ratio < 0.0 or noMov_ratio > 1.0:
+        raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {noMov_ratio}")
+
+    # Validate backbone_lr_scale
+    if backbone_lr_scale < 0.0 or backbone_lr_scale > 1.0:
+        raise ValueError(f"backbone_lr_scale must be in the interval [0, 1]. Got {backbone_lr_scale}")
+
+    # Validate num_stages_to_unfreeze
+    if num_stages_to_unfreeze < 0:
+        raise ValueError(f"num_stages_to_unfreeze must be non-negative. Got {num_stages_to_unfreeze}")
+    elif num_stages_to_unfreeze > 4:  # ConvNeXt has 4 stages
+        raise ValueError(f"num_stages_to_unfreeze cannot be greater than 4 for ConvNeXt. Got {num_stages_to_unfreeze}")
+
+    # Validate epochs
+    if max_epochs <= 0:
+        raise ValueError(f"max_epochs must be a positive integer. Got {max_epochs}")
+
+    # -------------------------
+    # Map model_name to ModelNames enum
+    # -------------------------
+    if isinstance(model_name, ModelNames):
+        # Already an enum member, use as-is
+        pass
+    elif isinstance(model_name, str):
+        # String value, convert to enum
+        try:
+            model_name = ModelNames(model_name)
+        except ValueError:
+            valid_names = [str(name.value) for name in ModelNames]
+            raise ValueError(f"Invalid model_name '{model_name}'. Valid options are: {valid_names}")
+    else:
+        raise ValueError(f"model_name must be a ModelNames enum or string. Got {type(model_name)}")
+
+    return (
+        model_name, max_epochs, noMov_ratio, num_stages_to_unfreeze,
+        (low_threshold, high_threshold), backbone_lr_scale
+    )
+
+
 if __name__ == '__main__':
     # -------------------------
     # Argument parsing to allow easy configuration from command line
     # -------------------------
     argparser = argparse.ArgumentParser(prog="CNN Training", description="Fine-tune ConvNeXt")
-    argparser.add_argument("-d", "--model_name", type=str, default=default_model_name.value, help="se Enums")
+    argparser.add_argument("-d", "--model_name", type=str, default=default_model_name.value, help="see Enums")
     argparser.add_argument("-e", "--max_epochs", type=int, default=default_max_epochs, help="Number of training epochs")
-    argparser.add_argument("-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0], help="Manual low and high confidence thresholds for 3 class classification (used when auto_tune_thresholds is False)")
-    argparser.add_argument("-r", "--noMov_ratio", type=float, default=default_noMov_ratio, help="Expected ratio of NOMOV samples in the backtesting set (used for auto-tuning thresholds)")
-    argparser.add_argument("-s", "--num_stages_to_unfreeze", type=int, default=default_num_stages_to_unfreeze, help="Number of stages to unfreeze for fine-tuning")
-    argparser.add_argument("--backbone_lr_scale", type=float, default=default_backbone_lr_scale, help="Scale factor for backbone LR relative to base LR (e.g. 0.1)")
+    argparser.add_argument(
+        "-t", "--manual_thresholds", nargs='+', type=float, default=[0, 0],
+        help="Manual low and high confidence thresholds"
+    )
+    argparser.add_argument(
+        "-r", "--noMov_ratio", type=float, default=default_noMov_ratio,
+        help="Expected NOMOV ratio for auto-tuning"
+    )
+    argparser.add_argument(
+        "-s", "--num_stages_to_unfreeze", type=int,
+        default=default_num_stages_to_unfreeze,
+        help="Number of stages to unfreeze for fine-tuning"
+    )
+    argparser.add_argument(
+        "--backbone_lr_scale", type=float, default=default_backbone_lr_scale,
+        help="Scale factor for backbone LR (e.g. 0.1)"
+    )
     args = argparser.parse_args()
 
-    # -------------------------
-    # Validate configuration inputs
-    # -------------------------
-    # Validate manual thresholds if provided (if both are 0, assume auto-tuning is desired)
-    if len(args.manual_thresholds) != 2:
-        raise ValueError("manual_thresholds argument must contain exactly 2 values: low and high confidence thresholds")
-    elif args.manual_thresholds == [0, 0]:
-        pass
-    else:
-        if args.manual_thresholds[0] < 0.0 or args.manual_thresholds[0] > 1.0 or args.manual_thresholds[1] < 0.0 or args.manual_thresholds[1] > 1.0:
-            raise ValueError(f"Manual thresholds must be between 0 and 1. Got {args.manual_thresholds}")
-        elif args.manual_thresholds[0] >= args.manual_thresholds[1]:
-            raise ValueError(f"Manual low confidence threshold must be less than high confidence threshold. Got {args.manual_thresholds}")
-        else:
-            auto_tune_thresholds = False
-            low_threshold, threshold = args.manual_thresholds
-            print(f"Using manual thresholds: low={low_threshold}, high={high_threshold:.4f}")
+    configuration_inputs = (
+        args.model_name, args.max_epochs, args.noMov_ratio,
+        args.num_stages_to_unfreeze, args.manual_thresholds,
+        args.backbone_lr_scale
+    )
 
-    # Validate noMov_ratio and adjust auto-tuning strategy if needed
-    if args.noMov_ratio < 0.0 or args.noMov_ratio > 1.0:
-        raise ValueError(f"Expected NOMOV ratio must be between 0 and 1. Got {args.noMov_ratio}")
+    (
+        model_name, max_epochs, noMov_ratio, num_stages_to_unfreeze,
+        manual_thresholds, backbone_lr_scale
+    ) = validate_configuration_inputs(configuration_inputs)
 
-    # Validate backbone_lr_scale
-    if args.backbone_lr_scale < 0.0 or args.backbone_lr_scale > 1.0:
-        raise ValueError(f"backbone_lr_scale must be in the interval [0, 1]. Got {args.backbone_lr_scale}")
-    else:
-        backbone_lr_scale = args.backbone_lr_scale
-        print(f"Using backbone LR scale: {backbone_lr_scale:.2f}")
-
-    # Validate num_stages_to_unfreeze
-    if args.num_stages_to_unfreeze < 0:
-        raise ValueError(f"num_stages_to_unfreeze must be non-negative. Got {args.num_stages_to_unfreeze}")
-    elif args.num_stages_to_unfreeze > 4:  # ConvNeXt has 4 stages, so unfreezing more than that doesn't make sense
-        raise ValueError(f"num_stages_to_unfreeze cannot be greater than 4 for ConvNeXt. Got {args.num_stages_to_unfreeze}")
-    else:
-        num_stages_to_unfreeze = args.num_stages_to_unfreeze
-        print(f"Number of stages to unfreeze for fine-tuning: {num_stages_to_unfreeze}")
-
-    # Validate epochs
-    if args.max_epochs <= 0:
-        raise ValueError(f"max_epochs must be a positive integer. Got {args.max_epochs}")
-    else:
-        max_epochs = args.max_epochs
-        print(f"Max number of training epochs: {max_epochs}")
-
-    # -------------------------
-    # Map model_name argument to names defined in ModelNames class
-    # -------------------------
-    if (args.model_name == "all_TIs"):
-        model_name = ModelNames.ALL_TIs
-    elif (args.model_name == "No_TIs"):
-        model_name = ModelNames.NO_TIs
-    elif (args.model_name == "OBV"):
-        model_name = ModelNames.OBV
-    elif (args.model_name == "RSI"):
-        model_name = ModelNames.RSI
-    elif (args.model_name == "BB"):
-        model_name = ModelNames.BB
-    elif (args.model_name == "No_OBV"):
-        model_name = ModelNames.NO_OBV
-    else:
-        raise ValueError(f"Invalid model_name argument: {args.model_name}")
-
-    new_model = ModelMaker(model_name=model_name)
+    new_model = ModelMaker(
+        model_name=model_name, max_epochs=max_epochs, noMov_ratio=noMov_ratio,
+        num_stages_to_unfreeze=num_stages_to_unfreeze,
+        thresholds=manual_thresholds, backbone_lr_scale=backbone_lr_scale
+    )
     new_model.print_summary()
     new_model.visualize_embeddings()
     new_model.train_model()
